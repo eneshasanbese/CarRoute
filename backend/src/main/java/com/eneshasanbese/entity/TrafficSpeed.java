@@ -6,11 +6,11 @@ import lombok.Data;
 import lombok.NoArgsConstructor;
 
 @Entity
-@Table(name = "traffic_coefficient")
+@Table(name = "traffic_speed")
 @NoArgsConstructor
 @AllArgsConstructor
 @Data
-public class TrafficCoefficient {
+public class TrafficSpeed {
 
     @Id
     @GeneratedValue(strategy = GenerationType.IDENTITY)
@@ -19,6 +19,5 @@ public class TrafficCoefficient {
     private String geohash;
     private String timeSlot;
     private double avgSpeed;
-    private double coefficient;
 
 }

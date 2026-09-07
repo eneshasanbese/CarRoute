@@ -5,6 +5,7 @@ target/
 !**/src/test/**/target/
 
 /src/main/resources/application.properties
+/src/main/resources/traffic_density_202501.csv
 
 ### STS ###
 .apt_generated
