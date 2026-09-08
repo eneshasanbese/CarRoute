@@ -7,6 +7,7 @@ import com.opencsv.CSVReader;
 
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.CommandLineRunner;
+import org.springframework.core.annotation.Order;
 import org.springframework.core.io.ClassPathResource;
 import org.springframework.stereotype.Component;
 
@@ -17,6 +18,7 @@ import java.util.HashMap;
 import java.util.Map;
 
 @Component
+@Order(1)
 public class TrafficDataSeeder implements CommandLineRunner {
 
     @Autowired
