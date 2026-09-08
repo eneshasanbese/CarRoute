@@ -1,7 +1,5 @@
 import { BusIcon, LayoutDashboardIcon, MapIcon, UsersIcon } from 'lucide-react'
 import { NavLink, Outlet } from 'react-router-dom'
-import { Badge } from '@/components/ui/badge'
-import { USE_MOCK } from '@/lib/api'
 import { cn } from '@/lib/utils'
 
 const NAV = [
@@ -41,15 +39,6 @@ export function AppLayout() {
             ))}
           </nav>
 
-          {USE_MOCK ? (
-            <Badge
-              variant="outline"
-              className="ml-auto border-capacity-warn/40 bg-capacity-warn/10 text-capacity-warn"
-              title="VITE_USE_MOCK=true — veriler tarayıcı içi sahte katmandan geliyor."
-            >
-              Demo verisi
-            </Badge>
-          ) : null}
         </div>
       </header>
 

@@ -1,6 +1,6 @@
 import { ClockIcon, RouteIcon, TimerIcon, TriangleAlertIcon } from 'lucide-react'
 import { Link } from 'react-router-dom'
-import { CapacityGauge } from '@/components/CapacityGauge'
+import { CapacityGauge } from '@/components/services/CapacityGauge'
 import { Badge } from '@/components/ui/badge'
 import { Card } from '@/components/ui/card'
 import { CAPACITY_META, capacityLevel } from '@/lib/capacity'

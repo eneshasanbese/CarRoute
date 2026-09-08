@@ -1,8 +1,9 @@
 import { Loader2Icon, PlusIcon } from 'lucide-react'
-import { useState } from 'react'
-import { EmployeeFormModal } from '@/components/EmployeeFormModal'
-import { EmployeeTable } from '@/components/EmployeeTable'
-import { ErrorState } from '@/components/states'
+import { useCallback, useState } from 'react'
+import { toast } from 'sonner'
+import { ErrorState } from '@/components/common/ErrorState'
+import { EmployeeFormModal } from '@/components/employees/EmployeeFormModal'
+import { EmployeeTable } from '@/components/employees/EmployeeTable'
 import {
   AlertDialog,
   AlertDialogAction,
@@ -15,22 +16,34 @@ import {
 } from '@/components/ui/alert-dialog'
 import { Button } from '@/components/ui/button'
 import { Skeleton } from '@/components/ui/skeleton'
-import { useDeleteEmployee, useEmployees } from '@/hooks/useEmployees'
-import { useServices } from '@/hooks/useServices'
+import { POLL_INTERVAL_MS, usePolling } from '@/hooks/usePolling'
+import { deleteEmployee, fetchEmployees } from '@/store/employeesSlice'
+import { useAppDispatch, useAppSelector } from '@/store/hooks'
+import { fetchServices } from '@/store/servicesSlice'
 import type { Employee } from '@/types'
 
 export function PersonelYonetimi() {
-  const { data, isPending, isError, error, refetch } = useEmployees()
-  const services = useServices()
-  const remove = useDeleteEmployee()
+  const dispatch = useAppDispatch()
+  const employees = useAppSelector((state) => state.employees.items)
+  const status = useAppSelector((state) => state.employees.status)
+  const error = useAppSelector((state) => state.employees.error)
+  const saving = useAppSelector((state) => state.employees.saving)
+  const services = useAppSelector((state) => state.services.items)
 
   const [formAcik, setFormAcik] = useState(false)
   const [duzenlenen, setDuzenlenen] = useState<Employee | null>(null)
   const [silinecek, setSilinecek] = useState<Employee | null>(null)
 
-  const servisIdleri =
-    services.data?.map((s) => s.id) ??
-    Array.from({ length: 10 }, (_, i) => i + 1)
+  const load = useCallback(() => {
+    void dispatch(fetchEmployees())
+    void dispatch(fetchServices())
+  }, [dispatch])
+
+  usePolling(load, POLL_INTERVAL_MS)
+
+  const servisIdleri = services.length
+    ? services.map((s) => s.id)
+    : Array.from({ length: 10 }, (_, i) => i + 1)
 
   function ekle() {
     setDuzenlenen(null)
@@ -45,14 +58,20 @@ export function PersonelYonetimi() {
   async function silmeyiOnayla() {
     if (!silinecek) return
     try {
-      await remove.mutateAsync({
-        id: silinecek.id,
-        adSoyad: silinecek.adSoyad,
+      const sonuc = await dispatch(
+        deleteEmployee({ id: silinecek.id, adSoyad: silinecek.adSoyad }),
+      ).unwrap()
+      toast.success(`${silinecek.adSoyad} silindi`, {
+        description: `Servis-${sonuc.service.id} rotası güncellendi.`,
       })
+    } catch (mesaj) {
+      toast.error('Personel silinemedi', { description: String(mesaj) })
     } finally {
       setSilinecek(null)
     }
   }
+
+  const yukleniyor = status === 'loading' || status === 'idle'
 
   return (
     <div className="space-y-6">
@@ -70,17 +89,17 @@ export function PersonelYonetimi() {
         </Button>
       </div>
 
-      {isError ? (
+      {status === 'failed' ? (
         <ErrorState
           title="Personel listesi yüklenemedi"
-          error={error}
-          onRetry={() => void refetch()}
+          message={error}
+          onRetry={load}
         />
-      ) : isPending ? (
+      ) : yukleniyor && employees.length === 0 ? (
         <TableSkeleton />
       ) : (
         <EmployeeTable
-          employees={data}
+          employees={employees}
           servisIdleri={servisIdleri}
           onEdit={duzenle}
           onDelete={setSilinecek}
@@ -107,17 +126,15 @@ export function PersonelYonetimi() {
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
-            <AlertDialogCancel disabled={remove.isPending}>
-              Vazgeç
-            </AlertDialogCancel>
+            <AlertDialogCancel disabled={saving}>Vazgeç</AlertDialogCancel>
             <AlertDialogAction
-              disabled={remove.isPending}
+              disabled={saving}
               onClick={(event) => {
                 event.preventDefault()
                 void silmeyiOnayla()
               }}
             >
-              {remove.isPending ? (
+              {saving ? (
                 <Loader2Icon className="mr-2 size-4 animate-spin" />
               ) : null}
               Sil

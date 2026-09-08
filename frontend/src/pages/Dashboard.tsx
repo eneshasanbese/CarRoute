@@ -1,13 +1,31 @@
-import { ServiceCard, ServiceCardSkeleton } from '@/components/ServiceCard'
-import { ErrorState } from '@/components/states'
-import { TrafficPanel } from '@/components/TrafficPanel'
+import { useCallback } from 'react'
+import { ErrorState } from '@/components/common/ErrorState'
+import {
+  ServiceCard,
+  ServiceCardSkeleton,
+} from '@/components/services/ServiceCard'
+import { TrafficPanel } from '@/components/traffic/TrafficPanel'
 import { Card, CardContent } from '@/components/ui/card'
 import { Skeleton } from '@/components/ui/skeleton'
-import { summarizeServices, useServices } from '@/hooks/useServices'
+import { POLL_INTERVAL_MS, usePolling } from '@/hooks/usePolling'
+import { useAppDispatch, useAppSelector } from '@/store/hooks'
+import { selectServicesSummary } from '@/store/selectors'
+import { fetchServices } from '@/store/servicesSlice'
 
 export function Dashboard() {
-  const { data, isPending, isError, error, refetch } = useServices()
-  const ozet = summarizeServices(data ?? [])
+  const dispatch = useAppDispatch()
+  const services = useAppSelector((state) => state.services.items)
+  const status = useAppSelector((state) => state.services.status)
+  const error = useAppSelector((state) => state.services.error)
+  const ozet = useAppSelector(selectServicesSummary)
+
+  const load = useCallback(() => {
+    void dispatch(fetchServices())
+  }, [dispatch])
+
+  usePolling(load, POLL_INTERVAL_MS)
+
+  const yukleniyor = status === 'loading' || status === 'idle'
 
   return (
     <div className="space-y-6">
@@ -23,22 +41,22 @@ export function Dashboard() {
           <SummaryTile
             label="Toplam personel"
             value={ozet.toplamPersonel}
-            loading={isPending}
+            loading={yukleniyor}
           />
           <SummaryTile
             label="Dolu servis"
-            value={`${ozet.doluServis} / ${data?.length ?? 10}`}
-            loading={isPending}
+            value={`${ozet.doluServis} / ${services.length || 10}`}
+            loading={yukleniyor}
           />
           <SummaryTile
             label="Boş servis"
             value={ozet.bosServis}
-            loading={isPending}
+            loading={yukleniyor}
           />
           <SummaryTile
             label="Ortalama doluluk"
             value={`%${ozet.ortalamaDoluluk}`}
-            loading={isPending}
+            loading={yukleniyor}
             hint={
               ozet.minAltiServis > 0
                 ? `${ozet.minAltiServis} servis min. kapasitenin altında`
@@ -50,17 +68,19 @@ export function Dashboard() {
         <TrafficPanel className="lg:row-span-2" />
       </div>
 
-      {isError ? (
+      {status === 'failed' ? (
         <ErrorState
           title="Servisler yüklenemedi"
-          error={error}
-          onRetry={() => void refetch()}
+          message={error}
+          onRetry={load}
         />
       ) : (
         <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-5">
-          {isPending
-            ? Array.from({ length: 10 }, (_, i) => <ServiceCardSkeleton key={i} />)
-            : data.map((service) => (
+          {yukleniyor && services.length === 0
+            ? Array.from({ length: 10 }, (_, i) => (
+                <ServiceCardSkeleton key={i} />
+              ))
+            : services.map((service) => (
                 <ServiceCard key={service.id} service={service} />
               ))}
         </div>
@@ -91,9 +111,7 @@ function SummaryTile({
         ) : (
           <p className="text-2xl font-semibold tabular-nums">{value}</p>
         )}
-        {hint ? (
-          <p className="text-xs text-capacity-under">{hint}</p>
-        ) : null}
+        {hint ? <p className="text-xs text-capacity-under">{hint}</p> : null}
       </CardContent>
     </Card>
   )

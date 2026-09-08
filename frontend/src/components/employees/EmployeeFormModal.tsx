@@ -3,7 +3,7 @@ import { Loader2Icon } from 'lucide-react'
 import { useEffect } from 'react'
 import { Controller, useForm } from 'react-hook-form'
 import { z } from 'zod'
-import { AddressAutocomplete } from '@/components/AddressAutocomplete'
+import { AddressAutocomplete } from '@/components/employees/AddressAutocomplete'
 import { Button } from '@/components/ui/button'
 import {
   Dialog,
@@ -23,7 +23,9 @@ import {
   SelectValue,
 } from '@/components/ui/select'
 import { Switch } from '@/components/ui/switch'
-import { useCreateEmployee, useUpdateEmployee } from '@/hooks/useEmployees'
+import { toast } from 'sonner'
+import { createEmployee, updateEmployee } from '@/store/employeesSlice'
+import { useAppDispatch, useAppSelector } from '@/store/hooks'
 import type { Employee, EmployeeInput } from '@/types'
 
 /**
@@ -117,9 +119,8 @@ export function EmployeeFormModal({
   employee,
 }: EmployeeFormModalProps) {
   const duzenleme = Boolean(employee)
-  const create = useCreateEmployee()
-  const update = useUpdateEmployee()
-  const kaydediliyor = create.isPending || update.isPending
+  const dispatch = useAppDispatch()
+  const kaydediliyor = useAppSelector((state) => state.employees.saving)
 
   const form = useForm<FormValues>({
     resolver: zodResolver(formSchema),
@@ -138,14 +139,19 @@ export function EmployeeFormModal({
   const onSubmit = handleSubmit(async (values) => {
     const input = toEmployeeInput(values)
     try {
-      if (employee) {
-        await update.mutateAsync({ id: employee.id, input })
-      } else {
-        await create.mutateAsync(input)
-      }
+      const sonuc = employee
+        ? await dispatch(updateEmployee({ id: employee.id, input })).unwrap()
+        : await dispatch(createEmployee(input)).unwrap()
+
+      toast.success(
+        `${input.adSoyad} ${employee ? 'güncellendi' : 'eklendi'}`,
+        { description: `Servis-${sonuc.service.id} rotası güncellendi.` },
+      )
       onOpenChange(false)
-    } catch {
-      // Hata bildirimi mutation hook'larındaki toast ile veriliyor.
+    } catch (mesaj) {
+      toast.error(employee ? 'Personel güncellenemedi' : 'Personel eklenemedi', {
+        description: String(mesaj),
+      })
     }
   })
 

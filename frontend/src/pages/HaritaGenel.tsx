@@ -1,39 +1,66 @@
 import { EyeIcon, EyeOffIcon } from 'lucide-react'
-import { RouteMap } from '@/components/RouteMap'
-import { ErrorState } from '@/components/states'
+import { useCallback } from 'react'
+import { ErrorState } from '@/components/common/ErrorState'
+import { RouteMap } from '@/components/map/RouteMap'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Skeleton } from '@/components/ui/skeleton'
-import { useServiceRoutes } from '@/hooks/useServiceRoute'
-import { useServices } from '@/hooks/useServices'
+import { POLL_INTERVAL_MS, usePolling } from '@/hooks/usePolling'
+import { useAppDispatch, useAppSelector } from '@/store/hooks'
+import { fetchServiceRoute, fetchServices } from '@/store/servicesSlice'
+import {
+  setHighlightedService,
+  showAllServices,
+  toggleServiceVisibility,
+} from '@/store/uiSlice'
 import { serviceColor } from '@/lib/serviceColors'
 import { cn, formatKm } from '@/lib/utils'
-import { useUiStore } from '@/store/uiStore'
 
 export function HaritaGenel() {
-  const services = useServices()
-  const servisIdleri = services.data?.map((s) => s.id) ?? []
-  const routes = useServiceRoutes(servisIdleri)
-
-  const hiddenServiceIds = useUiStore((s) => s.hiddenServiceIds)
-  const highlightedServiceId = useUiStore((s) => s.highlightedServiceId)
-  const toggleServiceVisibility = useUiStore((s) => s.toggleServiceVisibility)
-  const setAllServicesVisible = useUiStore((s) => s.setAllServicesVisible)
-  const setHighlightedServiceId = useUiStore((s) => s.setHighlightedServiceId)
-
-  const gorunurRotalar = routes.routes.filter(
-    (r) => !hiddenServiceIds.includes(r.servisId),
+  const dispatch = useAppDispatch()
+  const services = useAppSelector((state) => state.services.items)
+  const status = useAppSelector((state) => state.services.status)
+  const error = useAppSelector((state) => state.services.error)
+  const routes = useAppSelector((state) => state.services.routes)
+  const { hiddenServiceIds, highlightedServiceId } = useAppSelector(
+    (state) => state.ui,
   )
 
-  if (services.isError) {
+  const load = useCallback(() => {
+    void dispatch(fetchServices())
+      .unwrap()
+      .then((liste) => {
+        liste.forEach((service) => {
+          void dispatch(fetchServiceRoute(service.id))
+        })
+      })
+      .catch(() => {
+        // Hata durumu servicesSlice'ta tutuluyor, ayrıca ele almaya gerek yok.
+      })
+  }, [dispatch])
+
+  usePolling(load, POLL_INTERVAL_MS)
+
+  const gorunurRotalar = services
+    .filter((service) => !hiddenServiceIds.includes(service.id))
+    .map((service) => ({ servisId: service.id, stops: routes[service.id] }))
+    .filter(
+      (rota): rota is { servisId: number; stops: NonNullable<typeof rota.stops> } =>
+        rota.stops !== undefined,
+    )
+
+  if (status === 'failed') {
     return (
       <ErrorState
         title="Servisler yüklenemedi"
-        error={services.error}
-        onRetry={() => void services.refetch()}
+        message={error}
+        onRetry={load}
       />
     )
   }
+
+  const haritaHazir = services.length > 0 && gorunurRotalar.length > 0
+  const filtreVar = hiddenServiceIds.length > 0 || highlightedServiceId !== null
 
   return (
     <div className="space-y-4">
@@ -45,29 +72,27 @@ export function HaritaGenel() {
             vurgulayabilir, göz simgesiyle katmanı kapatabilirsin.
           </p>
         </div>
-        {hiddenServiceIds.length > 0 || highlightedServiceId !== null ? (
-          <Button variant="outline" size="sm" onClick={setAllServicesVisible}>
+        {filtreVar ? (
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={() => dispatch(showAllServices())}
+          >
             Tümünü göster
           </Button>
         ) : null}
       </div>
 
       <div className="grid gap-4 lg:grid-cols-[1fr_280px]">
-        {services.isPending || routes.isPending ? (
-          <Skeleton className="h-[640px] w-full rounded-xl" />
-        ) : routes.isError ? (
-          <ErrorState
-            title="Rotalar yüklenemedi"
-            error={routes.error}
-            onRetry={routes.refetch}
-          />
-        ) : (
+        {haritaHazir ? (
           <RouteMap
             className="h-[640px]"
             routes={gorunurRotalar}
             highlightedServiceId={highlightedServiceId}
             showStopNumbers={highlightedServiceId !== null}
           />
+        ) : (
+          <Skeleton className="h-[640px] w-full rounded-xl" />
         )}
 
         <Card>
@@ -75,19 +100,13 @@ export function HaritaGenel() {
             <CardTitle className="text-sm">Servisler</CardTitle>
           </CardHeader>
           <CardContent className="space-y-1">
-            {services.isPending
+            {services.length === 0
               ? Array.from({ length: 10 }, (_, i) => (
                   <Skeleton key={i} className="h-9 w-full" />
                 ))
-              : services.data.map((service) => {
+              : services.map((service) => {
                   const gizli = hiddenServiceIds.includes(service.id)
                   const vurgulu = highlightedServiceId === service.id
-                  const rota = routes.routes.find(
-                    (r) => r.servisId === service.id,
-                  )
-                  const toplamKm = rota
-                    ? rota.stops.reduce((sum, s) => sum + s.oncekiDuraktanKm, 0)
-                    : service.toplamKm
 
                   return (
                     <div
@@ -101,10 +120,12 @@ export function HaritaGenel() {
                       <button
                         type="button"
                         className="flex flex-1 items-center gap-2 text-left text-sm"
-                        onClick={() =>
-                          setHighlightedServiceId(vurgulu ? null : service.id)
-                        }
                         aria-pressed={vurgulu}
+                        onClick={() =>
+                          dispatch(
+                            setHighlightedService(vurgulu ? null : service.id),
+                          )
+                        }
                       >
                         <span
                           className="size-3 shrink-0 rounded-full"
@@ -112,7 +133,8 @@ export function HaritaGenel() {
                         />
                         <span className="font-medium">Servis-{service.id}</span>
                         <span className="ml-auto text-xs text-muted-foreground tabular-nums">
-                          {service.kisiSayisi} kişi · {formatKm(toplamKm)}
+                          {service.kisiSayisi} kişi ·{' '}
+                          {formatKm(service.toplamKm)}
                         </span>
                       </button>
                       <Button
@@ -124,7 +146,9 @@ export function HaritaGenel() {
                             ? `Servis-${service.id} katmanını aç`
                             : `Servis-${service.id} katmanını kapat`
                         }
-                        onClick={() => toggleServiceVisibility(service.id)}
+                        onClick={() =>
+                          dispatch(toggleServiceVisibility(service.id))
+                        }
                       >
                         {gizli ? (
                           <EyeOffIcon className="size-3.5" />

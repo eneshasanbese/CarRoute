@@ -1,6 +1,7 @@
 # Personel Servis Rota Sistemi — Frontend
 
 Admin/ops paneli: 10 sabit servisin doluluğu, personel yönetimi ve rota haritaları.
+Backend ile iletişim **Redux Toolkit + Axios** üzerinden yürür.
 
 ## Çalıştırma
 
@@ -12,60 +13,74 @@ npm run build          # tsc -b + vite build
 npm run lint           # oxlint
 ```
 
+Backend'in ayakta olması gerekir (`../backend`, varsayılan `http://localhost:8080`).
+
 ## Ortam değişkenleri (`.env`)
 
-| Değişken                  | Açıklama                                                            |
-| ------------------------- | ------------------------------------------------------------------- |
-| `VITE_API_BASE_URL`       | Backend adresi (varsayılan `http://localhost:8080`)                  |
-| `VITE_USE_MOCK`           | `true` iken tarayıcı içi sahte veri katmanı kullanılır (varsayılan `false`) |
-| `VITE_GEOCODING_PROVIDER` | `nominatim` (key gerektirmez) veya `none` (autocomplete kapalı)      |
-| `VITE_GEOCODING_API_KEY`  | Nominatim dışı bir sağlayıcıya geçilirse                             |
+| Değişken                  | Açıklama                                                       |
+| ------------------------- | -------------------------------------------------------------- |
+| `VITE_API_BASE_URL`       | Backend adresi (varsayılan `http://localhost:8080`)             |
+| `VITE_GEOCODING_PROVIDER` | `nominatim` (key gerektirmez) veya `none` (autocomplete kapalı) |
+| `VITE_GEOCODING_API_KEY`  | Nominatim dışı bir sağlayıcıya geçilirse                        |
 
-### Sahte veri katmanı
-
-Arayüz varsayılan olarak gerçek backend'e (`../backend`, port 8080) bağlanır.
-Backend çalışmıyorken `.env` içinde `VITE_USE_MOCK=true` yapılırsa
-[src/lib/mockApi.ts](src/lib/mockApi.ts) devreye girer: tarayıcı içinde 10 servis
-ve ~90 personel üretir, rota sırasını en-yakın-komşu ile hesaplar, ekleme/silmede
-etkilenen servisi yeniden hesaplar.
-
-Mock katmanını [src/lib/api.ts](src/lib/api.ts) dışında hiçbir dosya tanımıyor.
-Header'daki "Demo verisi" rozeti mock açıkken görünür.
+`.env` git'e girmez (yerel ayar). `.env.example` onun şablonu — depoya giren,
+"hangi değişkenler var" sorusunun cevabı olan dosya. Yeni bir makinede
+`cp .env.example .env` ile başlanır.
 
 ## Yapı
 
 ```
 src/
+  api/                      # Axios katmanı — backend'e giden tek kapı
+    axiosClient.ts          #   axios örneği + apiErrorMessage (okunabilir hata metni)
+    employeesApi.ts         #   /api/employees
+    servicesApi.ts          #   /api/services
+    trafficApi.ts           #   /api/traffic
+  store/                    # Redux Toolkit
+    index.ts                #   configureStore + RootState / AppDispatch
+    hooks.ts                #   useAppDispatch / useAppSelector (tipli)
+    employeesSlice.ts       #   fetch / create / update / delete thunk'ları
+    servicesSlice.ts        #   servisler + servis id -> rota
+    trafficSlice.ts         #   sabah / akşam yoğunluk
+    uiSlice.ts              #   harita katman ve vurgu durumu
+    selectors.ts            #   özet ve türetilmiş veriler (createSelector)
   components/
-    AppLayout.tsx            # üst nav: Dashboard / Personel / Harita
-    ServiceCard.tsx          # dashboard kartı (+ ServiceCardSkeleton)
-    CapacityGauge.tsx        # 0..15 bar, min. kapasite (5) çizgisi
-    EmployeeTable.tsx        # TanStack Table: sıralama, filtre, sayfalama
-    EmployeeFormModal.tsx    # RHF + Zod, adres autocomplete içerir
-    AddressAutocomplete.tsx  # debounce'lu adres arama, koordinat gizli
-    RouteMap.tsx             # react-leaflet sarmalayıcı, tek/çoklu rota
-    RouteStopList.tsx        # salt-okunur durak sırası
-    TrafficPanel.tsx         # sabah / akşam trafik yoğunluğu
-    states.tsx               # ErrorState ("Tekrar dene") + EmptyState
-    ui/                      # shadcn tarzı bileşenler (Radix + Tailwind)
-  pages/                     # Dashboard, PersonelYonetimi, ServisDetay, HaritaGenel
-  hooks/                     # useEmployees, useServices, useServiceRoute, useTraffic
-  lib/                       # api, mockApi, geocode, capacity, serviceColors, queryKeys
-  store/uiStore.ts           # zustand: harita katman/vurgu durumu
-  types.ts                   # paylaşılan tipler
+    layout/AppLayout.tsx    # üst nav: Dashboard / Personel / Harita
+    common/                 # ErrorState ("Tekrar dene") + EmptyState
+    employees/              # EmployeeTable, EmployeeFormModal, AddressAutocomplete
+    services/               # ServiceCard, CapacityGauge
+    map/                    # RouteMap, RouteStopList
+    traffic/                # TrafficPanel
+    ui/                     # shadcn tarzı temel bileşenler (Radix + Tailwind)
+  pages/                    # Dashboard, PersonelYonetimi, ServisDetay, HaritaGenel
+  hooks/usePolling.ts       # periyodik tazeleme
+  lib/                      # capacity, serviceColors, geocode, utils
+  types.ts                  # paylaşılan tipler
 ```
 
 ### Veri akışı
 
-- Tüm server state React Query'de. `services`, `employees` ve rota sorguları
-  5 sn'de bir polling yapar ([src/lib/queryKeys.ts](src/lib/queryKeys.ts) →
-  `POLL_INTERVAL_MS`). WebSocket'e geçilirse bu sabit kaldırılıp soket olayları
-  `invalidateQueries` tetiklemeli.
-- Ekleme/güncelleme/silme yanıtındaki `{ service, route }` doğrudan cache'e
-  yazılır, ardından `employees` + `services` invalidate edilir — kart, tablo ve
-  harita aynı anda tazelenir.
-- Sonuç kullanıcıya `sonner` toast'ı ile bildirilir
-  (ör. "Ayşe Kaya silindi — Servis-4 rotası güncellendi").
+Bileşen `useAppSelector` ile store'dan okur, `useAppDispatch` ile thunk çalıştırır.
+Thunk `api/` katmanındaki Axios fonksiyonunu çağırır; hata olursa
+`apiErrorMessage` ile okunabilir tek bir metne çevirip `rejectWithValue` ile
+slice'a yazar. Her slice `status` (`idle | loading | succeeded | failed`) ve
+`error` tutar; sayfalar iskelet / hata / boş durumlarını bu ikisine bakarak
+gösterir.
+
+**Mutasyon sonrası tazeleme.** Backend ekleme/güncelleme/silme yanıtında
+`{ employee, service, route }` döndürüyor. `servicesSlice`, `employeesSlice`'ın
+thunk'larını `isAnyOf(...)` ile dinleyip etkilenen servisi ve rotasını doğrudan
+store'a yazar — ayrıca bir GET isteği atılmaz. İki slice arasındaki bu bağ
+[src/store/servicesSlice.ts](src/store/servicesSlice.ts) sonundaki `addMatcher`
+bloğunda.
+
+**Polling.** Sayfalar [usePolling](src/hooks/usePolling.ts) ile 5 sn'de bir
+tazeler (trafik paneli 60 sn). WebSocket'e geçilirse bu hook yerine soket
+olayları aynı thunk'ları dispatch etmeli.
+
+**Toast.** Bildirimler slice'larda değil, dispatch eden bileşende:
+`await dispatch(...).unwrap()` başarılıysa `toast.success`, hata fırlatırsa
+`toast.error`. Böylece slice'lar saf kalıyor.
 
 ### Renk kuralları
 
@@ -82,6 +97,9 @@ sızmaz. Mapbox GL JS'e geçilmek istenirse sadece bu dosyanın gövdesi değiş
 
 ## Spec'ten sapmalar
 
+- **Redux Toolkit + Axios** kullanıldı (spec TanStack Query ve Zustand diyordu).
+  İstemci tarafı UI state'i de ayrı bir kütüphane yerine `uiSlice`'ta duruyor;
+  tek bir state kütüphanesi var.
 - **React 19** kullanıldı (spec React 18 diyordu) — mevcut Vite scaffold'u zaten
   React 19 ile geliyordu; shadcn/Radix bileşenleri `forwardRef` yerine ref-prop
   stiliyle yazıldı.
@@ -90,10 +108,9 @@ sızmaz. Mapbox GL JS'e geçilmek istenirse sadece bu dosyanın gövdesi değiş
 - **POST/PUT gövdesi** spec'teki alanlara ek olarak `adSoyad` (tabloda ve formda
   zorunlu, kontratta unutulmuş görünüyor) ve autocomplete'ten seçilen
   `ilce`/`lat`/`lon` alanlarını taşır. Kullanıcı listeden seçim yapmadıysa
-  koordinat gönderilmez ve adresi backend'in geocode etmesi beklenir.
-- **`cocukSayisi` alanı kaldırıldı.** Spec `Employee` tipinde çocuk sayısı ve
-  formda bir sayı girdisi istiyordu; sistemde çocuk bilgisi yalnızca var/yok
-  olarak tutuluyor, sayı tutulmuyor.
+  koordinat gönderilmez; backend adresteki ilçeye göre konum tahmin eder.
+- **`cocukSayisi` alanı yok.** Spec `Employee` tipinde çocuk sayısı istiyordu;
+  sistemde çocuk bilgisi yalnızca var/yok olarak tutuluyor.
 - **`servisId` null olabilir.** Backend bir personeli henüz hiçbir servise
   atamamışsa tabloda "Atanmadı" görünür.
 - `shadcn` CLI ile init edilmedi; bileşenler doğrudan `src/components/ui/` altına

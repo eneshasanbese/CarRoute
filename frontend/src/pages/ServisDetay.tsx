@@ -6,41 +6,63 @@ import {
   TriangleAlertIcon,
   UsersIcon,
 } from 'lucide-react'
+import { useCallback } from 'react'
 import { Link, useParams } from 'react-router-dom'
-import { CapacityGauge } from '@/components/CapacityGauge'
-import { RouteMap } from '@/components/RouteMap'
-import { RouteStopList } from '@/components/RouteStopList'
-import { ErrorState } from '@/components/states'
+import { ErrorState } from '@/components/common/ErrorState'
+import { RouteMap } from '@/components/map/RouteMap'
+import { RouteStopList } from '@/components/map/RouteStopList'
+import { CapacityGauge } from '@/components/services/CapacityGauge'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Skeleton } from '@/components/ui/skeleton'
-import { useServiceRoute } from '@/hooks/useServiceRoute'
-import { useService } from '@/hooks/useServices'
+import { POLL_INTERVAL_MS, usePolling } from '@/hooks/usePolling'
+import { useAppDispatch, useAppSelector } from '@/store/hooks'
+import {
+  selectRoute,
+  selectRouteError,
+  selectRouteStatus,
+  selectServiceById,
+} from '@/store/selectors'
+import { fetchServiceRoute, fetchServices } from '@/store/servicesSlice'
 import { CAPACITY_META, capacityLevel } from '@/lib/capacity'
 import { serviceColor } from '@/lib/serviceColors'
-import { cn, formatKm, formatSure } from '@/lib/utils'
+import { formatKm, formatSure } from '@/lib/utils'
 
 export function ServisDetay() {
   const params = useParams<{ id: string }>()
   const servisId = Number(params.id)
   const gecerliId = Number.isInteger(servisId) && servisId > 0
 
-  const { service, isPending: servisYukleniyor, isError: servisHatasi, error: servisHata, refetch: servisTekrar } =
-    useService(servisId)
-  const route = useServiceRoute(servisId, gecerliId)
+  const dispatch = useAppDispatch()
+  const service = useAppSelector(selectServiceById(servisId))
+  const servicesStatus = useAppSelector((state) => state.services.status)
+  const servicesError = useAppSelector((state) => state.services.error)
+  const route = useAppSelector(selectRoute(servisId))
+  const routeStatus = useAppSelector(selectRouteStatus(servisId))
+  const routeError = useAppSelector(selectRouteError(servisId))
+
+  const load = useCallback(() => {
+    if (!gecerliId) return
+    void dispatch(fetchServices())
+    void dispatch(fetchServiceRoute(servisId))
+  }, [dispatch, servisId, gecerliId])
+
+  usePolling(load, POLL_INTERVAL_MS)
 
   if (!gecerliId) {
     return (
       <ErrorState
         title="Geçersiz servis"
-        error={new Error(`"${params.id}" bir servis numarası değil.`)}
+        message={`"${params.id}" bir servis numarası değil.`}
       />
     )
   }
 
   const level = service ? capacityLevel(service) : null
   const meta = level ? CAPACITY_META[level] : null
+  const servisYukleniyor = !service && servicesStatus !== 'failed'
+  const rotaYukleniyor = !route && routeStatus !== 'failed'
 
   return (
     <div className="space-y-6">
@@ -58,23 +80,19 @@ export function ServisDetay() {
           />
           <h1 className="text-2xl font-semibold">Servis-{servisId}</h1>
         </div>
-        {meta && level === 'under' ? (
+        {meta ? (
           <Badge variant="outline" className={meta.badge}>
-            <TriangleAlertIcon className="size-3" />
-            Min. kapasite altında
-          </Badge>
-        ) : meta ? (
-          <Badge variant="outline" className={meta.badge}>
+            {level === 'under' ? <TriangleAlertIcon className="size-3" /> : null}
             {meta.label}
           </Badge>
         ) : null}
       </div>
 
-      {servisHatasi ? (
+      {servicesStatus === 'failed' ? (
         <ErrorState
           title="Servis bilgisi yüklenemedi"
-          error={servisHata}
-          onRetry={() => void servisTekrar()}
+          message={servicesError}
+          onRetry={load}
         />
       ) : (
         <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
@@ -83,9 +101,7 @@ export function ServisDetay() {
             label="Kapasite"
             loading={servisYukleniyor}
           >
-            {service ? (
-              <CapacityGauge service={service} />
-            ) : null}
+            {service ? <CapacityGauge service={service} /> : null}
           </StatCard>
           <StatCard
             icon={<RouteIcon className="size-4" />}
@@ -126,37 +142,37 @@ export function ServisDetay() {
             </p>
           </CardHeader>
           <CardContent>
-            {route.isError ? (
+            {routeStatus === 'failed' ? (
               <ErrorState
                 title="Rota yüklenemedi"
-                error={route.error}
-                onRetry={() => void route.refetch()}
+                message={routeError}
+                onRetry={load}
                 className="p-4"
               />
-            ) : route.isPending ? (
+            ) : rotaYukleniyor ? (
               <div className="space-y-3">
                 {Array.from({ length: 6 }, (_, i) => (
                   <Skeleton key={i} className="h-10 w-full" />
                 ))}
               </div>
             ) : (
-              <RouteStopList stops={route.data} />
+              <RouteStopList stops={route ?? []} />
             )}
           </CardContent>
         </Card>
 
-        {route.isPending ? (
-          <Skeleton className="h-[560px] w-full rounded-xl" />
-        ) : route.isError ? (
+        {routeStatus === 'failed' ? (
           <ErrorState
             title="Harita yüklenemedi"
-            error={route.error}
-            onRetry={() => void route.refetch()}
+            message={routeError}
+            onRetry={load}
           />
+        ) : rotaYukleniyor ? (
+          <Skeleton className="h-[560px] w-full rounded-xl" />
         ) : (
           <RouteMap
             className="h-[560px]"
-            routes={[{ servisId, stops: route.data }]}
+            routes={[{ servisId, stops: route ?? [] }]}
           />
         )}
       </div>
@@ -177,7 +193,7 @@ function StatCard({
 }) {
   return (
     <Card>
-      <CardContent className={cn('space-y-2 p-4')}>
+      <CardContent className="space-y-2 p-4">
         <p className="flex items-center gap-1.5 text-xs tracking-wide text-muted-foreground uppercase">
           {icon}
           {label}

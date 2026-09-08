@@ -1,7 +1,6 @@
-import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { lazy, Suspense } from 'react'
 import { BrowserRouter, Navigate, Route, Routes } from 'react-router-dom'
-import { AppLayout } from '@/components/AppLayout'
+import { AppLayout } from '@/components/layout/AppLayout'
 import { Skeleton } from '@/components/ui/skeleton'
 import { Toaster } from '@/components/ui/sonner'
 import { Dashboard } from '@/pages/Dashboard'
@@ -15,16 +14,6 @@ const HaritaGenel = lazy(() =>
   import('@/pages/HaritaGenel').then((m) => ({ default: m.HaritaGenel })),
 )
 
-const queryClient = new QueryClient({
-  defaultOptions: {
-    queries: {
-      staleTime: 3_000,
-      retry: 1,
-      refetchOnWindowFocus: true,
-    },
-  },
-})
-
 function PageFallback() {
   return (
     <div className="space-y-4">
@@ -36,7 +25,7 @@ function PageFallback() {
 
 export default function App() {
   return (
-    <QueryClientProvider client={queryClient}>
+    <>
       <BrowserRouter>
         <Suspense fallback={<PageFallback />}>
           <Routes>
@@ -51,6 +40,6 @@ export default function App() {
         </Suspense>
       </BrowserRouter>
       <Toaster />
-    </QueryClientProvider>
+    </>
   )
 }

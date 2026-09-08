@@ -1,5 +1,5 @@
 import { BuildingIcon, WarehouseIcon } from 'lucide-react'
-import { EmptyState } from '@/components/states'
+import { EmptyState } from '@/components/common/EmptyState'
 import { serviceColor } from '@/lib/serviceColors'
 import { cn, formatKm } from '@/lib/utils'
 import type { RouteStop } from '@/types'
