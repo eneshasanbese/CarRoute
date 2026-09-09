@@ -28,9 +28,9 @@ Uygulama açılışında iki adım çalışır (`@Order` ile sıralı):
 | `POST`   | `/api/employees`                       | Ekler, servise atar, rotayı yeniden hesaplar        |
 | `PUT`    | `/api/employees/{id}`                  | Günceller; adres değiştiyse servisi yeniden seçer   |
 | `DELETE` | `/api/employees/{id}`                  | Siler, ilgili servisin rotasını yeniden hesaplar    |
-| `GET`    | `/api/services`                        | 10 servisin doluluk ve rota özeti                   |
+| `GET`    | `/api/services?sefer=sabah|aksam`      | 10 servisin doluluk, rota özeti ve kural durumu     |
 | `GET`    | `/api/services/{id}`                   | Tek servisin özeti                                  |
-| `GET`    | `/api/services/{id}/route`             | Sıralı duraklar (şoför evi → işçiler → ofis)        |
+| `GET`    | `/api/services/{id}/route?sefer=…`     | Sıralı duraklar, varış aralıkları, yolculuk süreleri |
 | `POST`   | `/api/services/reassign`               | Bütün atamaları sıfırlayıp baştan dağıtır           |
 | `GET`    | `/api/traffic/snapshot?bucket=sabah`   | `sabah` \| `aksam` yoğunluk özeti                   |
 
@@ -78,10 +78,6 @@ aramanın kendisinden pahalıya geliyordu.
 **Kuş uçuşu tahmin hâlâ duruyor**, iki yerde: toplu dağıtımda (100 işçi × 10
 servis × birkaç tur = yüz binlerce değerlendirme, ağ isteği kaldırmaz) ve OSRM
 ulaşılamadığında her yerde.
-
-**Süre**, yol mesafesinin o koridorun sabah zirvesi ortalama hızına bölünmesiyle
-bulunur — mesafe OSRM'den, hız İBB verisinden. OSRM'in kendi `duration` değeri
-bilerek kullanılmıyor: o boş yolun süresidir, İstanbul sabahını bilmez.
 
 **Süre, OSRM'in süresi üzerine tıkanıklık çarpanı uygulanarak bulunur.**
 
@@ -249,6 +245,38 @@ carroute.route.fallback-speed=30.0
 carroute.traffic.free-flow-speed=80.0
 carroute.cors.allowed-origins=http://localhost:5173,http://localhost:5174
 ```
+
+## Seferler ve iş kuralları
+
+**İki sefer var ve biri diğerinin tersi değil.** Sabah şoförün evinden ofise,
+akşam ofisten şoförün evine. Üç yerde farklılaşıyorlar:
+
+| | sabah | akşam |
+| --- | --- | --- |
+| Yön | şoför evi → ofis | ofis → şoför evi |
+| Trafik dilimi | `SABAH_ZIRVE` | `AKSAM_ZIRVE` (medyan 44 km/sa, sabah 53) |
+| Zaman çapası | **varış** sabit (08:00), kalkış geriye sayılır | **kalkış** sabit (17:30), varışlar ileriye sayılır |
+
+Akşam sıralaması sabahın tersi olarak türetilmiyor, bağımsız hesaplanıyor: yol
+matrisi asimetrik ve akşam tıkanıklığı her koridorda aynı oranda artmıyor.
+Ölçümde akşam rotaları sabahtan farklı km veriyor (bir serviste 44.9 → 49.2).
+
+**Kural: bir yolcu 90 dakikadan fazla araçta kalmaz.** Sabah bunu zorlayan kişi
+ilk binen, akşam en son inen. Şoför kapsam dışı — bütün turu yapan o, ama bu
+onun işi. Sınır `carroute.rule.max-ride-minutes` ile değişir.
+
+Kural **engellemez, işaretler**: ihlal eden servis arayüzde rozetle gösterilir.
+Düzeltmek atama katmanının işi — 15 kişilik bir servisin 131 dakikası
+sıralamadan değil aşırı yüklemeden geliyor.
+
+**Varış saatleri aralık olarak veriliyor** ("06:58–07:04"), tek bir dakika
+olarak değil. Tek dakika, sahip olmadığımız bir kesinliği iddia ederdi.
+Aralığın genişliği uydurma bir ± değer değil: aynı hücrenin hızı Ocak 2025
+verisinde günden güne medyan %6.2 oynuyor (`traffic_speed.speed_variation`) ve
+bu oynaklık yol aldıkça birikiyor — ilk duraklar dar, son duraklar geniş.
+Sapmalar **doğrusal** toplanıyor, karekök değil: İstanbul'da tıkanıklık şehir
+çapında birlikte hareket eder, bağımsız varsaymak pencereyi gerçekçi olmayacak
+kadar daraltırdı.
 
 ## Modelin bilinen sınırları
 
