@@ -2,7 +2,7 @@ package com.eneshasanbese.service;
 
 import com.eneshasanbese.entity.TrafficSpeed;
 import com.eneshasanbese.repository.TrafficSpeedRepository;
-import com.eneshasanbese.util.Accumulator;
+import com.eneshasanbese.util.SpeedStats;
 import com.opencsv.CSVReader;
 
 import org.springframework.beans.factory.annotation.Autowired;
@@ -14,7 +14,9 @@ import org.springframework.stereotype.Component;
 import java.io.InputStreamReader;
 import java.time.LocalDateTime;
 import java.time.format.DateTimeFormatter;
+import java.util.ArrayList;
 import java.util.HashMap;
+import java.util.List;
 import java.util.Map;
 
 @Component
@@ -37,17 +39,22 @@ public class TrafficDataSeeder implements CommandLineRunner {
                 || repository.countByTimeSlot(TrafficSpeedService.SLOT_MORNING) == 0
                 || repository.countByTimeSlot(TrafficSpeedService.SLOT_EVENING) == 0;
 
-        if (!eksikDilimVar) {
+        // Oynaklık kolonu sonradan eklendi; hiç dolmamışsa tablo eski demektir.
+        boolean oynaklikEksik = repository.countBySpeedVariationGreaterThan(0) == 0;
+
+        if (!eksikDilimVar && !oynaklikEksik) {
             System.out.println("Trafik verisi zaten yüklü, atlıyorum.");
             return;
         }
 
         if (repository.count() > 0) {
-            System.out.println("Trafik tablosunda eksik zaman dilimi var, tamamı yeniden üretiliyor...");
+            System.out.println("Trafik tablosu eksik ("
+                    + (eksikDilimVar ? "zaman dilimi" : "oynaklık verisi")
+                    + "), tamamı yeniden üretiliyor...");
             repository.deleteAllInBatch();
         }
 
-        Map<String, Map<String, Accumulator>> summary = new HashMap<>();
+        Map<String, Map<String, SpeedStats>> summary = new HashMap<>();
         DateTimeFormatter formatter = DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss");
 
         ClassPathResource resource = new ClassPathResource("traffic_density_202501.csv");
@@ -66,11 +73,13 @@ public class TrafficDataSeeder implements CommandLineRunner {
                 String geohash = line[3];
                 double avgSpeed = Double.parseDouble(line[6]);
                 int vehicleCount = Integer.parseInt(line[7]);
+                // Oynaklık gün bazında ölçüldüğü için tarih de taşınıyor.
+                String day = dateTime.toLocalDate().toString();
 
                 summary
                         .computeIfAbsent(geohash, k -> new HashMap<>())
-                        .computeIfAbsent(timeSlot, k -> new Accumulator())
-                        .add(avgSpeed, vehicleCount);
+                        .computeIfAbsent(timeSlot, k -> new SpeedStats())
+                        .add(day, avgSpeed, vehicleCount);
 
                 processedCount++;
                 if (processedCount % 100_000 == 0) {
@@ -83,18 +92,25 @@ public class TrafficDataSeeder implements CommandLineRunner {
         System.out.println("Trafik hız tablosu DB'ye kaydedildi. Toplam geohash: " + summary.size());
     }
 
-    private void saveToDatabase(Map<String, Map<String, Accumulator>> summary) {
-        for (Map.Entry<String, Map<String, Accumulator>> geoEntry : summary.entrySet()) {
+    private void saveToDatabase(Map<String, Map<String, SpeedStats>> summary) {
+        List<TrafficSpeed> batch = new ArrayList<>();
+
+        for (Map.Entry<String, Map<String, SpeedStats>> geoEntry : summary.entrySet()) {
             String geohash = geoEntry.getKey();
 
-            for (Map.Entry<String, Accumulator> slotEntry : geoEntry.getValue().entrySet()) {
+            for (Map.Entry<String, SpeedStats> slotEntry : geoEntry.getValue().entrySet()) {
+                SpeedStats stats = slotEntry.getValue();
+
                 TrafficSpeed entity = new TrafficSpeed();
                 entity.setGeohash(geohash);
                 entity.setTimeSlot(slotEntry.getKey());
-                entity.setAvgSpeed(slotEntry.getValue().average());
-                repository.save(entity);
+                entity.setAvgSpeed(stats.average());
+                entity.setSpeedVariation(stats.variation());
+                batch.add(entity);
             }
         }
+
+        repository.saveAll(batch);
     }
 
     /**

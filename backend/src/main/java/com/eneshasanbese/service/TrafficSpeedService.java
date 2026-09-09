@@ -119,6 +119,39 @@ public class TrafficSpeedService {
     }
 
     /**
+     * Bir noktanın hızının günden güne oynaklığı (varyasyon katsayısı).
+     *
+     * <p>
+     * Varış saatini tek bir dakika olarak vermek, sahip olmadığımız bir
+     * kesinliği iddia etmek olurdu. Arayüzde gösterilen varış aralığının
+     * genişliği bu değerden türetiliyor — uydurma bir ± dakika değil, verinin
+     * kendi değişkenliği. Ocak 2025 sabah zirvesinde medyan %6.2.
+     *
+     * @return 0 ile 1 arası oran; hiç ölçüm yoksa 0
+     */
+    public double speedVariation(double lat, double lon, String timeSlot) {
+        SlotIndex index = indexCache.computeIfAbsent(timeSlot, this::buildIndex);
+        String cell = GeoHash.encode(lat, lon, CELL_PRECISION);
+
+        Double exact = index.variationByCell().get(cell);
+        if (exact != null) {
+            return exact;
+        }
+
+        Double neighbour = index.variationByCell5().get(cell.substring(0, 5));
+        if (neighbour != null) {
+            return neighbour;
+        }
+
+        Double region = index.variationByCell4().get(cell.substring(0, 4));
+        if (region != null) {
+            return region;
+        }
+
+        return index.cityVariation();
+    }
+
+    /**
      * Serbest akış dilimi yüklü mü? Yüklü değilse çarpan tabanlı süre modeli
      * devre dışı kalır ve çağıran taraf hız tabanlı eski hesaba döner.
      */
@@ -156,9 +189,14 @@ public class TrafficSpeedService {
         List<TrafficSpeed> rows = repository.findByTimeSlot(timeSlot);
 
         Map<String, Double> byCell = new HashMap<>();
+        Map<String, Double> variationByCell = new HashMap<>();
         Map<String, double[]> sum5 = new HashMap<>();
         Map<String, double[]> sum4 = new HashMap<>();
+        Map<String, double[]> variation5 = new HashMap<>();
+        Map<String, double[]> variation4 = new HashMap<>();
         double total = 0;
+        double variationTotal = 0;
+        int variationCount = 0;
 
         for (TrafficSpeed row : rows) {
             String cell = row.getGeohash();
@@ -171,13 +209,29 @@ public class TrafficSpeedService {
 
             accumulate(sum5, cell.substring(0, 5), speed);
             accumulate(sum4, cell.substring(0, 4), speed);
+
+            // Yeterli gün bulunmayan hücrelerde oynaklık 0 ya da NULL gelir;
+            // onları ortalamaya katmak şehir oynaklığını yapay olarak düşürürdü.
+            Double stored = row.getSpeedVariation();
+            double variation = stored == null ? 0 : stored;
+            if (variation > 0) {
+                variationByCell.put(cell, variation);
+                variationTotal += variation;
+                variationCount++;
+                accumulate(variation5, cell.substring(0, 5), variation);
+                accumulate(variation4, cell.substring(0, 4), variation);
+            }
         }
 
         return new SlotIndex(
                 byCell,
                 average(sum5),
                 average(sum4),
-                byCell.isEmpty() ? 0 : total / byCell.size());
+                byCell.isEmpty() ? 0 : total / byCell.size(),
+                variationByCell,
+                average(variation5),
+                average(variation4),
+                variationCount == 0 ? 0 : variationTotal / variationCount);
     }
 
     private static void accumulate(Map<String, double[]> target, String key, double value) {
@@ -196,6 +250,10 @@ public class TrafficSpeedService {
             Map<String, Double> byCell,
             Map<String, Double> byCell5,
             Map<String, Double> byCell4,
-            double cityAverage) {
+            double cityAverage,
+            Map<String, Double> variationByCell,
+            Map<String, Double> variationByCell5,
+            Map<String, Double> variationByCell4,
+            double cityVariation) {
     }
 }

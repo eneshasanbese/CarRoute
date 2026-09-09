@@ -14,6 +14,7 @@ import com.eneshasanbese.dto.ServiceDto;
 import com.eneshasanbese.entity.Driver;
 import com.eneshasanbese.entity.ServiceVehicle;
 import com.eneshasanbese.entity.Worker;
+import com.eneshasanbese.enums.Shift;
 import com.eneshasanbese.repository.ServiceVehicleRepository;
 import com.eneshasanbese.repository.WorkerRepository;
 import com.eneshasanbese.service.RouteService.RouteResult;
@@ -47,31 +48,31 @@ public class ServiceCatalogService {
     }
 
     @Transactional(readOnly = true)
-    public List<ServiceDto> listServices() {
+    public List<ServiceDto> listServices(Shift shift) {
         Map<Long, Driver> drivers = assignmentService.driversByVehicleId();
 
         return serviceVehicleRepository.findAllByOrderByIdAsc().stream()
                 .map(vehicle -> {
                     List<Worker> workers = workersOf(vehicle);
                     RouteResult result = routeService.build(
-                            vehicle, drivers.get(vehicle.getId()), workers);
-                    return routeService.toService(vehicle, result, workers.size());
+                            vehicle, drivers.get(vehicle.getId()), workers, shift);
+                    return routeService.toService(vehicle, result, workers.size(), shift);
                 })
                 .toList();
     }
 
     @Transactional(readOnly = true)
-    public ServiceDto serviceOf(Long vehicleId) {
+    public ServiceDto serviceOf(Long vehicleId, Shift shift) {
         ServiceVehicle vehicle = requireVehicle(vehicleId);
         List<Worker> workers = workersOf(vehicle);
-        RouteResult result = routeService.build(vehicle, driverOf(vehicleId), workers);
-        return routeService.toService(vehicle, result, workers.size());
+        RouteResult result = routeService.build(vehicle, driverOf(vehicleId), workers, shift);
+        return routeService.toService(vehicle, result, workers.size(), shift);
     }
 
     @Transactional(readOnly = true)
-    public RouteDto routeOf(Long vehicleId) {
+    public RouteDto routeOf(Long vehicleId, Shift shift) {
         ServiceVehicle vehicle = requireVehicle(vehicleId);
-        RouteResult result = routeService.build(vehicle, driverOf(vehicleId), workersOf(vehicle));
+        RouteResult result = routeService.build(vehicle, driverOf(vehicleId), workersOf(vehicle), shift);
         return routeService.toRoute(result);
     }
 
@@ -80,11 +81,12 @@ public class ServiceCatalogService {
     public MutationResultDto mutationResult(EmployeeDto employee, Long vehicleId) {
         ServiceVehicle vehicle = requireVehicle(vehicleId);
         List<Worker> workers = workersOf(vehicle);
-        RouteResult result = routeService.build(vehicle, driverOf(vehicleId), workers);
+        // Değişiklik yanıtı arayüzün varsayılan görünümünü tazeler: sabah seferi.
+        RouteResult result = routeService.build(vehicle, driverOf(vehicleId), workers, Shift.SABAH);
 
         return new MutationResultDto(
                 employee,
-                routeService.toService(vehicle, result, workers.size()),
+                routeService.toService(vehicle, result, workers.size(), Shift.SABAH),
                 routeService.toRoute(result));
     }
 

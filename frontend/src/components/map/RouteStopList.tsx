@@ -10,6 +10,19 @@ interface RouteStopListProps {
 }
 
 /**
+ * Varış saati bir aralık olarak gösterilir çünkü tek bir dakika, sahip
+ * olmadığımız bir kesinliği iddia ederdi. Aralığın genişliği trafik verisinin
+ * günden güne oynaklığından geliyor ve yol aldıkça birikiyor. Kalkış durağında
+ * iki uç eşittir — orada belirsizlik yok.
+ */
+function varisAraligi(stop: RouteStop) {
+  if (!stop.varisSaatiErken) return ''
+  return stop.varisSaatiErken === stop.varisSaatiGec
+    ? stop.varisSaatiErken
+    : `${stop.varisSaatiErken}–${stop.varisSaatiGec}`
+}
+
+/**
  * Durak sırası salt-okunur: sıralamayı tamamen algoritma belirler, arayüzde
  * manuel taşıma/yeniden sıralama yoktur.
  */
@@ -64,18 +77,26 @@ export function RouteStopList({ stops, className }: RouteStopListProps) {
             </span>
 
             <div className="min-w-0 flex-1">
-              <p
-                className={cn(
-                  'truncate text-sm',
-                  depo ? 'font-semibold' : 'font-medium',
-                )}
-              >
-                {stop.adSoyad}
-              </p>
+              <div className="flex items-baseline justify-between gap-2">
+                <p
+                  className={cn(
+                    'truncate text-sm',
+                    depo ? 'font-semibold' : 'font-medium',
+                  )}
+                >
+                  {stop.adSoyad}
+                </p>
+                <span className="shrink-0 text-xs font-semibold tabular-nums">
+                  {varisAraligi(stop)}
+                </span>
+              </div>
               <p className="text-xs text-muted-foreground tabular-nums">
                 {stop.durakNo === 0
                   ? 'Başlangıç'
                   : `Önceki duraktan ${formatKm(stop.oncekiDuraktanKm)}`}
+                {stop.employeeId !== null && stop.yolculukDk > 0
+                  ? ` · araçta ${stop.yolculukDk} dk`
+                  : ''}
               </p>
             </div>
           </li>

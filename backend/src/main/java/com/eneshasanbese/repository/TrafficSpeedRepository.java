@@ -15,4 +15,10 @@ public interface TrafficSpeedRepository extends JpaRepository<TrafficSpeed, Long
     List<TrafficSpeed> findByTimeSlot(String timeSlot);
 
     long countByTimeSlot(String timeSlot);
+
+    /**
+     * Oynaklık kolonu hiç doldurulmamışsa 0 döner — tablo bu alan eklenmeden
+     * önce üretilmiş demektir ve yeniden üretilmesi gerekir.
+     */
+    long countBySpeedVariationGreaterThan(double value);
 }

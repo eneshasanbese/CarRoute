@@ -1,5 +1,6 @@
 package com.eneshasanbese.service;
 
+import java.time.LocalTime;
 import java.time.format.DateTimeFormatter;
 import java.util.ArrayList;
 import java.util.Collections;
@@ -18,6 +19,7 @@ import com.eneshasanbese.dto.ServiceDto;
 import com.eneshasanbese.entity.Driver;
 import com.eneshasanbese.entity.ServiceVehicle;
 import com.eneshasanbese.entity.Worker;
+import com.eneshasanbese.enums.Shift;
 import com.eneshasanbese.util.GeoUtils;
 
 /**
@@ -95,7 +97,13 @@ public class RouteService {
             List<RouteStopDto> stops,
             List<double[]> geometry,
             double totalKm,
-            double totalMinutes) {
+            double totalMinutes,
+            /** En uzun süre araçta kalan yolcunun süresi. Şoför sayılmaz. */
+            int maxRideMinutes,
+            /** Sabah: kalkış saati. Akşam: ofis kalkışı (sabit). */
+            String startTime,
+            /** Sabah: ofise varış. Akşam: son yolcunun indiği saat. */
+            String endTime) {
     }
 
     /**
@@ -110,15 +118,15 @@ public class RouteService {
         }
     }
 
-    public RouteResult build(ServiceVehicle vehicle, Driver driver, List<Worker> workers) {
-        String key = cacheKey(vehicle, driver, workers);
+    public RouteResult build(ServiceVehicle vehicle, Driver driver, List<Worker> workers, Shift shift) {
+        String key = shift.name() + "|" + cacheKey(vehicle, driver, workers);
 
         RouteResult cached = routeCache.get(key);
         if (cached != null) {
             return cached;
         }
 
-        RouteResult result = compute(vehicle, driver, workers);
+        RouteResult result = compute(vehicle, driver, workers, shift);
 
         if (routeCache.size() >= ROUTE_CACHE_LIMIT) {
             routeCache.clear();
@@ -137,11 +145,11 @@ public class RouteService {
      * isteği koymak dağıtımı dakikalar sürecek hale getirirdi.
      */
     public double estimateMinutes(Driver driver, List<Worker> workers) {
-        double[][] nodes = nodes(driver, workers);
-        LegCost cost = costFunction(nodes, null);
+        double[][] nodes = nodes(Shift.SABAH, driver, workers);
+        LegCost cost = costFunction(nodes, null, TrafficSpeedService.SLOT_MORNING);
 
         List<Integer> order = nearestNeighbour(START_NODE, workerNodes(workers.size()), cost);
-        return tourMinutes(order, START_NODE, officeNode(nodes), cost);
+        return tourMinutes(order, START_NODE, endNode(nodes), cost);
     }
 
     /**
@@ -158,29 +166,37 @@ public class RouteService {
         List<Worker> withCandidate = new ArrayList<>(current);
         withCandidate.add(candidate);
 
-        double[][] nodes = nodes(driver, withCandidate);
-        int officeNode = officeNode(nodes);
+        double[][] nodes = nodes(Shift.SABAH, driver, withCandidate);
+        int endNode = endNode(nodes);
         double[][] roadMeters = roadMatrix(nodes);
-        LegCost cost = costFunction(nodes, roadMeters);
+        LegCost cost = costFunction(nodes, roadMeters, TrafficSpeedService.SLOT_MORNING);
 
         // Aday listenin sonunda, yani son işçi düğümü. "Adaysız" senaryo için onu
         // düğüm listesinden çıkarmak yeterli.
         return new InsertionCost(
-                bestTourMinutes(workerNodes(current.size()), officeNode, cost),
-                bestTourMinutes(workerNodes(withCandidate.size()), officeNode, cost));
+                bestTourMinutes(workerNodes(current.size()), endNode, cost),
+                bestTourMinutes(workerNodes(withCandidate.size()), endNode, cost));
     }
 
-    public ServiceDto toService(ServiceVehicle vehicle, RouteResult result, int kisiSayisi) {
+    public ServiceDto toService(
+            ServiceVehicle vehicle, RouteResult result, int kisiSayisi, Shift shift) {
+
         int durationMinutes = (int) Math.round(result.totalMinutes());
+        int limit = settings.getMaxRideMinutes();
 
         return new ServiceDto(
                 vehicle.getId(),
+                shift.label(),
                 kisiSayisi,
                 settings.getMinCapacity(),
                 vehicle.getCapacity(),
                 round1(result.totalKm()),
                 durationMinutes,
-                departureTime(durationMinutes));
+                result.startTime(),
+                result.endTime(),
+                result.maxRideMinutes(),
+                limit,
+                result.maxRideMinutes() > limit);
     }
 
     public RouteDto toRoute(RouteResult result) {
@@ -194,23 +210,29 @@ public class RouteService {
 
     // ---------------------------------------------------------------- kurgu
 
-    private RouteResult compute(ServiceVehicle vehicle, Driver driver, List<Worker> workers) {
-        double[][] nodes = nodes(driver, workers);
-        int officeNode = officeNode(nodes);
+    private RouteResult compute(ServiceVehicle vehicle, Driver driver, List<Worker> workers, Shift shift) {
+        String timeSlot = shift == Shift.SABAH
+                ? TrafficSpeedService.SLOT_MORNING
+                : TrafficSpeedService.SLOT_EVENING;
 
-        // Sıralamanın tamamı bu tek matris üzerinden yapılır.
+        double[][] nodes = nodes(shift, driver, workers);
+        int endNode = endNode(nodes);
+
+        // Sıralamanın tamamı bu tek matris üzerinden yapılır. Akşam sırası
+        // sabahın tersi olarak türetilmiyor: matris asimetrik ve akşam
+        // tıkanıklığı her koridorda aynı oranda artmıyor.
         double[][] roadMeters = roadMatrix(nodes);
-        LegCost cost = costFunction(nodes, roadMeters);
+        LegCost cost = costFunction(nodes, roadMeters, timeSlot);
 
         List<Integer> order = nearestNeighbour(START_NODE, workerNodes(workers.size()), cost);
-        improve(order, officeNode, cost);
+        improve(order, endNode, cost);
 
         List<Worker> ordered = order.stream().map(node -> workers.get(node - 1)).toList();
 
         List<Integer> sequence = new ArrayList<>(order.size() + 2);
         sequence.add(START_NODE);
         sequence.addAll(order);
-        sequence.add(officeNode);
+        sequence.add(endNode);
 
         List<double[]> points = sequence.stream().map(node -> nodes[node]).toList();
 
@@ -220,9 +242,70 @@ public class RouteService {
         List<double[]> geometry = osrmRoute.map(OsrmClient.Route::geometry).orElse(null);
 
         List<Double> legKm = legDistancesKm(nodes, roadMeters, sequence, osrmRoute);
-        List<Double> legMinutes = legDurationsMinutes(points, geometry, legKm, osrmRoute);
+        List<Double> legMinutes = legDurationsMinutes(points, geometry, legKm, osrmRoute, timeSlot);
+        List<Double> legVariation = legVariations(points, geometry, timeSlot);
 
-        return assemble(vehicle, driver, ordered, points, legKm, legMinutes, geometry);
+        return assemble(vehicle, driver, ordered, points, legKm, legMinutes, legVariation, geometry, shift);
+    }
+
+    /**
+     * Her bacağın hız oynaklığı (varyasyon katsayısı) — varış penceresinin
+     * genişliği buradan geliyor.
+     *
+     * <p>
+     * Geometri varsa çizgi boyunca mesafe-ağırlıklı ortalama alınır; yoksa
+     * bacağın iki ucuna bakılır. Hiç ölçüm yoksa yapılandırılmış varsayılana
+     * düşülür — pencereyi tamamen kapatmak, sahip olmadığımız bir kesinliği
+     * iddia etmek olurdu.
+     */
+    private List<Double> legVariations(List<double[]> points, List<double[]> geometry, String timeSlot) {
+        int legCount = points.size() - 1;
+        List<Double> variations = new ArrayList<>(legCount);
+
+        int[] boundaries = geometry != null && geometry.size() >= 2
+                ? geometryBoundaries(points, geometry)
+                : null;
+
+        for (int i = 0; i < legCount; i++) {
+            double variation = boundaries != null
+                    ? sampledVariation(geometry, boundaries[i], boundaries[i + 1], timeSlot)
+                    : 0;
+
+            if (variation <= 0) {
+                double[] from = points.get(i);
+                double[] to = points.get(i + 1);
+                variation = (trafficSpeedService.speedVariation(from[0], from[1], timeSlot)
+                        + trafficSpeedService.speedVariation(to[0], to[1], timeSlot)) / 2;
+            }
+
+            variations.add(variation > 0 ? variation : settings.getDefaultVariation());
+        }
+
+        return variations;
+    }
+
+    /** Çizginin bir parçası boyunca mesafe-ağırlıklı ortalama oynaklık. */
+    private double sampledVariation(List<double[]> geometry, int from, int to, String timeSlot) {
+        double km = 0;
+        double weighted = 0;
+
+        for (int i = from; i < to; i++) {
+            double[] start = geometry.get(i);
+            double[] end = geometry.get(i + 1);
+
+            double segment = GeoUtils.haversineKm(start[0], start[1], end[0], end[1]);
+            if (segment <= 0) {
+                continue;
+            }
+
+            double variation = trafficSpeedService.speedVariation(
+                    (start[0] + end[0]) / 2, (start[1] + end[1]) / 2, timeSlot);
+
+            km += segment;
+            weighted += segment * variation;
+        }
+
+        return km > 0 ? weighted / km : 0;
     }
 
     /**
@@ -280,14 +363,15 @@ public class RouteService {
             List<double[]> points,
             List<double[]> geometry,
             List<Double> legKm,
-            Optional<OsrmClient.Route> osrmRoute) {
+            Optional<OsrmClient.Route> osrmRoute,
+            String timeSlot) {
 
         // 3. kademe: iki uç hızı. Diğerleri bunun üzerine yazar.
         List<Double> minutes = new ArrayList<>(legKm.size());
         for (int i = 0; i < legKm.size(); i++) {
             double[] from = points.get(i);
             double[] to = points.get(i + 1);
-            minutes.add(legMinutes(from[0], from[1], to[0], to[1], legKm.get(i)));
+            minutes.add(legMinutes(from[0], from[1], to[0], to[1], legKm.get(i), timeSlot));
         }
 
         if (geometry == null || geometry.size() < 2) {
@@ -303,7 +387,7 @@ public class RouteService {
             if (useOsrmDuration) {
                 // 1. kademe
                 double freeFlowMinutes = legs.get(i).durationSeconds() / 60.0;
-                double factor = sampledCongestionFactor(geometry, boundaries[i], boundaries[i + 1]);
+                double factor = sampledCongestionFactor(geometry, boundaries[i], boundaries[i + 1], timeSlot);
                 if (freeFlowMinutes > 0 && factor > 0) {
                     minutes.set(i, freeFlowMinutes * factor);
                     continue;
@@ -311,7 +395,7 @@ public class RouteService {
             }
 
             // 2. kademe
-            double speed = sampledSpeedKmh(geometry, boundaries[i], boundaries[i + 1]);
+            double speed = sampledSpeedKmh(geometry, boundaries[i], boundaries[i + 1], timeSlot);
             if (speed > 1) {
                 minutes.set(i, legKm.get(i) / speed * 60);
             }
@@ -327,7 +411,7 @@ public class RouteService {
      * Ağırlık mesafe: uzun kesimler sonucu hak ettiği kadar etkiler. Parça yoksa
      * 0 döner ve çağıran taraf bir alt kademeye iner.
      */
-    private double sampledCongestionFactor(List<double[]> geometry, int from, int to) {
+    private double sampledCongestionFactor(List<double[]> geometry, int from, int to, String timeSlot) {
         double km = 0;
         double weighted = 0;
 
@@ -343,7 +427,7 @@ public class RouteService {
             double factor = trafficSpeedService.congestionFactor(
                     (start[0] + end[0]) / 2,
                     (start[1] + end[1]) / 2,
-                    TrafficSpeedService.SLOT_MORNING);
+                    timeSlot);
 
             km += segment;
             weighted += segment * factor;
@@ -395,7 +479,7 @@ public class RouteService {
      * sonucu hak ettiği kadar aşağı çekiyor. Parça yoksa 0 döner, çağıran taraf
      * iki uçlu hesaba düşer.
      */
-    private double sampledSpeedKmh(List<double[]> geometry, int from, int to) {
+    private double sampledSpeedKmh(List<double[]> geometry, int from, int to, String timeSlot) {
         double km = 0;
         double hours = 0;
 
@@ -411,7 +495,7 @@ public class RouteService {
             double speed = trafficSpeedService.speedKmh(
                     (start[0] + end[0]) / 2,
                     (start[1] + end[1]) / 2,
-                    TrafficSpeedService.SLOT_MORNING);
+                    timeSlot);
 
             km += segment;
             hours += segment / speed;
@@ -420,6 +504,29 @@ public class RouteService {
         return hours > 0 ? km / hours : 0;
     }
 
+    /**
+     * Durakları, saatleri ve yolculuk sürelerini kurar.
+     *
+     * <p>
+     * <b>Zaman çapası sefere göre değişiyor.</b> Sabah <i>varış</i> sabittir:
+     * ofiste 08:00'de olunacak, kalkış geriye sayılıyor. Akşam <i>kalkış</i>
+     * sabittir: 17:30'da ofisten çıkılıyor, varışlar ileriye sayılıyor. Her iki
+     * durumda da araç planlanan saatte yola çıkar ve belirsizlik yol aldıkça
+     * birikir.
+     *
+     * <p>
+     * <b>Varış penceresi.</b> Tek bir dakika yazmak, sahip olmadığımız bir
+     * kesinliği iddia etmek olurdu. Pencerenin genişliği İBB verisinin kendi
+     * günden güne oynaklığından geliyor (sabah medyanı %6.2). Sapmalar
+     * <em>doğrusal</em> toplanıyor, karekök değil: İstanbul'da tıkanıklık şehir
+     * çapında birlikte hareket eder, bağımsız varsaymak pencereyi gerçekçi
+     * olmayacak kadar daraltırdı.
+     *
+     * <p>
+     * <b>Yolculuk süresi</b> yolcunun araçta geçirdiği süredir: sabah kapısına
+     * gelindiği andan ofise varışa, akşam ofisten kalkıştan kapısında indiği ana
+     * kadar. Şoförün kendi süresi sayılmaz — bütün turu yapan o, ama bu onun işi.
+     */
     private RouteResult assemble(
             ServiceVehicle vehicle,
             Driver driver,
@@ -427,51 +534,105 @@ public class RouteService {
             List<double[]> points,
             List<Double> legKm,
             List<Double> legMinutes,
-            List<double[]> geometry) {
+            List<Double> legVariation,
+            List<double[]> geometry,
+            Shift shift) {
 
-        String startLabel = driver != null
-                ? "Kalkış: " + driver.getName() + " " + driver.getSurname()
-                : "Kalkış noktası";
+        String driverLabel = driver != null
+                ? driver.getName() + " " + driver.getSurname()
+                : "Şoför";
 
-        List<RouteStopDto> stops = new ArrayList<>();
-        stops.add(new RouteStopDto(
-                vehicle.getId(), 0, null, startLabel, points.get(0)[0], points.get(0)[1], 0));
+        // Kalkış ve varış etiketleri sefere göre yer değiştiriyor.
+        String startLabel = shift == Shift.SABAH
+                ? "Kalkış: " + driverLabel
+                : settings.getOfficeLabel();
+        String endLabel = shift == Shift.SABAH
+                ? settings.getOfficeLabel()
+                : "Varış: " + driverLabel;
+
+        // Her durağa kadar biriken süre ve belirsizlik.
+        int stopCount = ordered.size() + 2;
+        double[] elapsed = new double[stopCount];
+        double[] spread = new double[stopCount];
 
         double totalKm = 0;
-        double totalMinutes = 0;
+        for (int i = 0; i < legKm.size(); i++) {
+            totalKm += legKm.get(i);
+
+            double boarding = i < ordered.size() ? settings.getBoardingMinutes() : 0;
+            elapsed[i + 1] = elapsed[i] + legMinutes.get(i) + boarding;
+            spread[i + 1] = spread[i] + legMinutes.get(i) * legVariation.get(i);
+        }
+
+        double totalMinutes = elapsed[stopCount - 1];
+
+        // Sabah: 08:00'den geriye. Akşam: 17:30'dan ileriye.
+        LocalTime start = shift == Shift.SABAH
+                ? settings.arrivalAt().minusMinutes(Math.round(totalMinutes))
+                : settings.departureAt();
+
+        List<RouteStopDto> stops = new ArrayList<>(stopCount);
+
+        stops.add(new RouteStopDto(
+                vehicle.getId(), 0, null, startLabel,
+                points.get(0)[0], points.get(0)[1], 0,
+                start.format(HHMM), start.format(HHMM), 0));
+
+        int maxRide = 0;
 
         for (int i = 0; i < ordered.size(); i++) {
             Worker worker = ordered.get(i);
-            double km = legKm.get(i);
+            int stopIndex = i + 1;
 
-            totalKm += km;
-            totalMinutes += legMinutes.get(i);
-            totalMinutes += settings.getBoardingMinutes();
+            // Sabah bu kişi burada biniyor ve turun sonuna kadar araçta;
+            // akşam ofisten beri araçta ve burada iniyor.
+            int ride = (int) Math.round(shift == Shift.SABAH
+                    ? totalMinutes - elapsed[stopIndex]
+                    : elapsed[stopIndex]);
+            maxRide = Math.max(maxRide, ride);
 
             stops.add(new RouteStopDto(
                     vehicle.getId(),
-                    i + 1,
+                    stopIndex,
                     worker.getId(),
                     worker.getName() + " " + worker.getSurname(),
                     worker.getLatitude(),
                     worker.getLongitude(),
-                    round2(km)));
+                    round2(legKm.get(i)),
+                    windowStart(start, elapsed[stopIndex], spread[stopIndex]),
+                    windowEnd(start, elapsed[stopIndex], spread[stopIndex]),
+                    ride));
         }
 
-        double lastKm = legKm.get(legKm.size() - 1);
-        totalKm += lastKm;
-        totalMinutes += legMinutes.get(legMinutes.size() - 1);
-
+        int last = stopCount - 1;
         stops.add(new RouteStopDto(
                 vehicle.getId(),
-                ordered.size() + 1,
+                last,
                 null,
-                settings.getOfficeLabel(),
-                settings.getOfficeLat(),
-                settings.getOfficeLon(),
-                round2(lastKm)));
+                endLabel,
+                points.get(points.size() - 1)[0],
+                points.get(points.size() - 1)[1],
+                round2(legKm.get(legKm.size() - 1)),
+                windowStart(start, elapsed[last], spread[last]),
+                windowEnd(start, elapsed[last], spread[last]),
+                0));
 
-        return new RouteResult(List.copyOf(stops), geometry, totalKm, totalMinutes);
+        // Akşam kuralı son *yolcunun* inişine bakar; şoförün eve varışı değil.
+        String endTime = shift == Shift.SABAH
+                ? settings.arrivalAt().format(HHMM)
+                : start.plusMinutes(Math.round(elapsed[Math.max(1, last - 1)])).format(HHMM);
+
+        return new RouteResult(
+                List.copyOf(stops), geometry, totalKm, totalMinutes,
+                maxRide, start.format(HHMM), endTime);
+    }
+
+    private String windowStart(LocalTime start, double elapsed, double spread) {
+        return start.plusMinutes(Math.round(elapsed - spread)).format(HHMM);
+    }
+
+    private String windowEnd(LocalTime start, double elapsed, double spread) {
+        return start.plusMinutes(Math.round(elapsed + spread)).format(HHMM);
     }
 
     // --------------------------------------------------------------- düğümler
@@ -480,8 +641,12 @@ public class RouteService {
     private static final int START_NODE = 0;
 
     /**
-     * Rota düğümlerinin koordinatları: 0 = kalkış (şoför evi), 1..N = işçiler
-     * (verilen liste sırasıyla), N+1 = ofis.
+     * Rota düğümlerinin koordinatları: 0 = kalkış, 1..N = işçiler (verilen liste
+     * sırasıyla), N+1 = varış.
+     *
+     * <p>
+     * Uçlar sefere göre yer değiştirir — sabah şoför evinden ofise, akşam
+     * ofisten şoför evine. Arada kalan işçi düğümleri aynı.
      *
      * <p>
      * Sıralama algoritmaları işçi nesneleriyle değil bu dizideki indekslerle
@@ -489,25 +654,26 @@ public class RouteService {
      * yol" ile "kuş uçuşu" maliyetleri tek satır değiştirilerek takas
      * edilebiliyor.
      */
-    private double[][] nodes(Driver driver, List<Worker> workers) {
+    private double[][] nodes(Shift shift, Driver driver, List<Worker> workers) {
         double[][] coordinates = new double[workers.size() + 2][];
 
-        coordinates[START_NODE] = driver != null
+        double[] home = driver != null
                 ? new double[] { driver.getLatitude(), driver.getLongitude() }
                 : new double[] { settings.getOfficeLat(), settings.getOfficeLon() };
+        double[] office = new double[] { settings.getOfficeLat(), settings.getOfficeLon() };
+
+        coordinates[START_NODE] = shift == Shift.SABAH ? home : office;
+        coordinates[coordinates.length - 1] = shift == Shift.SABAH ? office : home;
 
         for (int i = 0; i < workers.size(); i++) {
             Worker worker = workers.get(i);
             coordinates[i + 1] = new double[] { worker.getLatitude(), worker.getLongitude() };
         }
 
-        coordinates[coordinates.length - 1] = new double[] {
-                settings.getOfficeLat(), settings.getOfficeLon() };
-
         return coordinates;
     }
 
-    private static int officeNode(double[][] nodes) {
+    private static int endNode(double[][] nodes) {
         return nodes.length - 1;
     }
 
@@ -537,7 +703,7 @@ public class RouteService {
      * En fazla 17 düğüm olduğu için tablo 289 hücre: bir kez doldur, sonrası
      * dizi okuması.
      */
-    private LegCost costFunction(double[][] nodes, double[][] roadMeters) {
+    private LegCost costFunction(double[][] nodes, double[][] roadMeters, String timeSlot) {
         int size = nodes.length;
         double[][] minutes = new double[size][size];
 
@@ -549,7 +715,7 @@ public class RouteService {
                 double[] start = nodes[from];
                 double[] end = nodes[to];
                 minutes[from][to] = legMinutes(start[0], start[1], end[0], end[1],
-                        legKm(nodes, roadMeters, from, to));
+                        legKm(nodes, roadMeters, from, to), timeSlot);
             }
         }
 
@@ -576,19 +742,19 @@ public class RouteService {
     }
 
     /** Verilen yol mesafesini o koridorun sabah zirvesi ortalama hızına böler. */
-    private double legMinutes(double fromLat, double fromLon, double toLat, double toLon, double km) {
+    private double legMinutes(double fromLat, double fromLon, double toLat, double toLon, double km, String timeSlot) {
         double speed = trafficSpeedService.legSpeedKmh(
-                fromLat, fromLon, toLat, toLon, TrafficSpeedService.SLOT_MORNING);
+                fromLat, fromLon, toLat, toLon, timeSlot);
         return km / speed * 60;
     }
 
     // -------------------------------------------------------------- sıralama
 
     /** En-yakın-komşu + yerel arama ile kurulan turun süresi. */
-    private double bestTourMinutes(List<Integer> workerNodes, int officeNode, LegCost cost) {
+    private double bestTourMinutes(List<Integer> workerNodes, int endNode, LegCost cost) {
         List<Integer> order = nearestNeighbour(START_NODE, workerNodes, cost);
-        improve(order, officeNode, cost);
-        return tourMinutes(order, START_NODE, officeNode, cost);
+        improve(order, endNode, cost);
+        return tourMinutes(order, START_NODE, endNode, cost);
     }
 
     /**
@@ -608,14 +774,14 @@ public class RouteService {
      * taşır; asimetrik maliyetle doğru çalışan hamle budur. Aynı serviste
      * optimali buluyor.
      */
-    private void improve(List<Integer> order, int officeNode, LegCost cost) {
+    private void improve(List<Integer> order, int endNode, LegCost cost) {
         if (order.size() < 3) {
             return;
         }
 
         for (int round = 0; round < IMPROVE_MAX_ROUNDS; round++) {
-            boolean improved = twoOpt(order, officeNode, cost);
-            improved |= orOpt(order, officeNode, cost);
+            boolean improved = twoOpt(order, endNode, cost);
+            improved |= orOpt(order, endNode, cost);
 
             if (!improved) {
                 return;
@@ -627,11 +793,11 @@ public class RouteService {
      * Or-opt: 1-3 duraklık bir parçayı yönünü koruyarak turun başka bir yerine
      * taşır. Her turda mümkün hamlelerin en iyisi uygulanır.
      */
-    private boolean orOpt(List<Integer> order, int officeNode, LegCost cost) {
+    private boolean orOpt(List<Integer> order, int endNode, LegCost cost) {
         boolean anyImprovement = false;
 
         for (int pass = 0; pass < LOCAL_SEARCH_MAX_PASSES; pass++) {
-            List<Integer> better = bestOrOptMove(order, officeNode, cost);
+            List<Integer> better = bestOrOptMove(order, endNode, cost);
             if (better == null) {
                 return anyImprovement;
             }
@@ -645,8 +811,8 @@ public class RouteService {
     }
 
     /** En çok kazandıran tek Or-opt hamlesinin sonucu; kazanç yoksa null. */
-    private List<Integer> bestOrOptMove(List<Integer> order, int officeNode, LegCost cost) {
-        double best = tourMinutes(order, START_NODE, officeNode, cost);
+    private List<Integer> bestOrOptMove(List<Integer> order, int endNode, LegCost cost) {
+        double best = tourMinutes(order, START_NODE, endNode, cost);
         List<Integer> bestOrder = null;
 
         int maxSegment = Math.min(OR_OPT_MAX_SEGMENT, order.size() - 1);
@@ -666,7 +832,7 @@ public class RouteService {
                     List<Integer> candidate = new ArrayList<>(rest);
                     candidate.addAll(to, segment);
 
-                    double value = tourMinutes(candidate, START_NODE, officeNode, cost);
+                    double value = tourMinutes(candidate, START_NODE, endNode, cost);
                     if (value < best - IMPROVEMENT_EPSILON) {
                         best = value;
                         bestOrder = candidate;
@@ -679,7 +845,7 @@ public class RouteService {
     }
 
     /** Kalkış → sıralı işçiler → ofis turunun toplam dakikası (biniş dahil). */
-    private double tourMinutes(List<Integer> order, int startNode, int officeNode, LegCost cost) {
+    private double tourMinutes(List<Integer> order, int startNode, int endNode, LegCost cost) {
         double minutes = 0;
         int current = startNode;
 
@@ -688,7 +854,7 @@ public class RouteService {
             current = node;
         }
 
-        return minutes + cost.minutes(current, officeNode);
+        return minutes + cost.minutes(current, endNode);
     }
 
     private List<Integer> nearestNeighbour(int startNode, List<Integer> workerNodes, LegCost cost) {
@@ -727,7 +893,7 @@ public class RouteService {
      * serviste en fazla 15 durak olduğu için turun tamamını hesaplamak yine de
      * ucuz: en kötü ihtimalle birkaç yüz bin dizi okuması.
      */
-    private boolean twoOpt(List<Integer> order, int officeNode, LegCost cost) {
+    private boolean twoOpt(List<Integer> order, int endNode, LegCost cost) {
         if (order.size() < 3) {
             return false;
         }
@@ -738,12 +904,12 @@ public class RouteService {
 
         while (improved && pass++ < LOCAL_SEARCH_MAX_PASSES) {
             improved = false;
-            double current = tourMinutes(order, START_NODE, officeNode, cost);
+            double current = tourMinutes(order, START_NODE, endNode, cost);
 
             for (int i = 0; i < order.size() - 1; i++) {
                 for (int j = i + 1; j < order.size(); j++) {
                     Collections.reverse(order.subList(i, j + 1));
-                    double candidate = tourMinutes(order, START_NODE, officeNode, cost);
+                    double candidate = tourMinutes(order, START_NODE, endNode, cost);
 
                     if (candidate < current - IMPROVEMENT_EPSILON) {
                         current = candidate;

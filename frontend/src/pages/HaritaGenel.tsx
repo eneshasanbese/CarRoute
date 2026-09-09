@@ -2,12 +2,17 @@ import { EyeIcon, EyeOffIcon } from 'lucide-react'
 import { useCallback } from 'react'
 import { ErrorState } from '@/components/common/ErrorState'
 import { RouteMap } from '@/components/map/RouteMap'
+import { SeferToggle } from '@/components/services/SeferToggle'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Skeleton } from '@/components/ui/skeleton'
 import { POLL_INTERVAL_MS, usePolling } from '@/hooks/usePolling'
 import { useAppDispatch, useAppSelector } from '@/store/hooks'
-import { fetchServiceRoute, fetchServices } from '@/store/servicesSlice'
+import {
+  fetchServiceRoute,
+  fetchServices,
+  setSefer,
+} from '@/store/servicesSlice'
 import {
   setHighlightedService,
   showAllServices,
@@ -22,6 +27,7 @@ export function HaritaGenel() {
   const status = useAppSelector((state) => state.services.status)
   const error = useAppSelector((state) => state.services.error)
   const routes = useAppSelector((state) => state.services.routes)
+  const sefer = useAppSelector((state) => state.services.sefer)
   const { hiddenServiceIds, highlightedServiceId } = useAppSelector(
     (state) => state.ui,
   )
@@ -73,15 +79,31 @@ export function HaritaGenel() {
             vurgulayabilir, göz simgesiyle katmanı kapatabilirsin.
           </p>
         </div>
-        {filtreVar ? (
-          <Button
-            variant="outline"
-            size="sm"
-            onClick={() => dispatch(showAllServices())}
-          >
-            Tümünü göster
-          </Button>
-        ) : null}
+        <div className="flex items-center gap-2">
+          <SeferToggle
+            value={sefer}
+            onChange={(secim) => {
+              dispatch(setSefer(secim))
+              void dispatch(fetchServices(secim))
+                .unwrap()
+                .then((liste) => {
+                  liste.forEach((service) => {
+                    void dispatch(fetchServiceRoute(service.id))
+                  })
+                })
+                .catch(() => {})
+            }}
+          />
+          {filtreVar ? (
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => dispatch(showAllServices())}
+            >
+              Tümünü göster
+            </Button>
+          ) : null}
+        </div>
       </div>
 
       <div className="grid gap-4 lg:grid-cols-[1fr_280px]">

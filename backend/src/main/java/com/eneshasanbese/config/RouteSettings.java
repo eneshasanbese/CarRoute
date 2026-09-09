@@ -32,9 +32,30 @@ public class RouteSettings {
     @Value("${carroute.office.label:Ofis (Sancaktepe)}")
     private String officeLabel;
 
-    /** Ofiste olunması gereken saat; kalkış saati bundan geriye sayılır. */
+    /** Ofiste olunması gereken saat; sabah kalkışı bundan geriye sayılır. */
     @Value("${carroute.office.arrival:08:00}")
     private String arrivalTime;
+
+    /** Akşam ofisten kalkış saati; varış saatleri bundan ileriye sayılır. */
+    @Value("${carroute.office.departure:17:30}")
+    private String departureTime;
+
+    /**
+     * Bir yolcunun araçta geçirebileceği azami süre (dakika).
+     *
+     * <p>
+     * Sabah bunu zorlayan kişi <b>ilk binen</b>, akşam <b>en son inen</b>.
+     * Şoför kapsam dışı: bütün turu yapan o, ama bu onun işi.
+     */
+    @Value("${carroute.rule.max-ride-minutes:90}")
+    private int maxRideMinutes;
+
+    /**
+     * Hız oynaklığı bilinmeyen bölgeler için varsayılan varyasyon katsayısı.
+     * Ocak 2025 verisinde ölçülen medyan %6.2'ye yakın tutuldu.
+     */
+    @Value("${carroute.route.default-variation:0.07}")
+    private double defaultVariation;
 
     /** Servis başına en az kişi — altına düşerse yalnızca uyarılır. */
     @Value("${carroute.capacity.min:5}")
@@ -64,5 +85,9 @@ public class RouteSettings {
 
     public LocalTime arrivalAt() {
         return LocalTime.parse(arrivalTime);
+    }
+
+    public LocalTime departureAt() {
+        return LocalTime.parse(departureTime);
     }
 }

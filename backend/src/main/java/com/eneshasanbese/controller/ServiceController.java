@@ -6,11 +6,13 @@ import java.util.Map;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
+import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
 
 import com.eneshasanbese.dto.RouteDto;
 import com.eneshasanbese.dto.ServiceDto;
+import com.eneshasanbese.enums.Shift;
 import com.eneshasanbese.service.AssignmentService;
 import com.eneshasanbese.service.ServiceCatalogService;
 
@@ -29,18 +31,22 @@ public class ServiceController {
     }
 
     @GetMapping
-    public List<ServiceDto> list() {
-        return serviceCatalogService.listServices();
+    public List<ServiceDto> list(@RequestParam(defaultValue = "sabah") String sefer) {
+        return serviceCatalogService.listServices(Shift.of(sefer));
     }
 
     @GetMapping("/{id}")
-    public ServiceDto detail(@PathVariable Long id) {
-        return serviceCatalogService.serviceOf(id);
+    public ServiceDto detail(
+            @PathVariable Long id,
+            @RequestParam(defaultValue = "sabah") String sefer) {
+        return serviceCatalogService.serviceOf(id, Shift.of(sefer));
     }
 
     @GetMapping("/{id}/route")
-    public RouteDto route(@PathVariable Long id) {
-        return serviceCatalogService.routeOf(id);
+    public RouteDto route(
+            @PathVariable Long id,
+            @RequestParam(defaultValue = "sabah") String sefer) {
+        return serviceCatalogService.routeOf(id, Shift.of(sefer));
     }
 
     /**
@@ -50,6 +56,6 @@ public class ServiceController {
     @PostMapping("/reassign")
     public Map<String, Object> reassign() {
         int count = assignmentService.reassignAll();
-        return Map.of("reassigned", count, "services", serviceCatalogService.listServices());
+        return Map.of("reassigned", count, "services", serviceCatalogService.listServices(Shift.SABAH));
     }
 }

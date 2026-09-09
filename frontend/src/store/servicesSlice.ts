@@ -1,4 +1,9 @@
-import { createAsyncThunk, createSlice, isAnyOf } from '@reduxjs/toolkit'
+import {
+  createAsyncThunk,
+  createSlice,
+  isAnyOf,
+  type PayloadAction,
+} from '@reduxjs/toolkit'
 import { apiErrorMessage } from '@/api/axiosClient'
 import { servicesApi } from '@/api/servicesApi'
 import {
@@ -7,9 +12,11 @@ import {
   updateEmployee,
   type RequestStatus,
 } from '@/store/employeesSlice'
-import type { Service, ServiceRoute } from '@/types'
+import type { Sefer, Service, ServiceRoute } from '@/types'
 
 interface ServicesState {
+  /** Görüntülenen sefer. Değişince rotalar tazelenir. */
+  sefer: Sefer
   items: Service[]
   status: RequestStatus
   error: string | null
@@ -20,6 +27,7 @@ interface ServicesState {
 }
 
 const initialState: ServicesState = {
+  sefer: 'sabah',
   items: [],
   status: 'idle',
   error: null,
@@ -30,11 +38,11 @@ const initialState: ServicesState = {
 
 export const fetchServices = createAsyncThunk<
   Service[],
-  void,
-  { rejectValue: string }
->('services/fetch', async (_arg, { rejectWithValue }) => {
+  Sefer | undefined,
+  { rejectValue: string; state: { services: ServicesState } }
+>('services/fetch', async (sefer, { getState, rejectWithValue }) => {
   try {
-    return await servicesApi.list()
+    return await servicesApi.list(sefer ?? getState().services.sefer)
   } catch (error) {
     return rejectWithValue(apiErrorMessage(error))
   }
@@ -43,10 +51,11 @@ export const fetchServices = createAsyncThunk<
 export const fetchServiceRoute = createAsyncThunk<
   { servisId: number; route: ServiceRoute },
   number,
-  { rejectValue: string }
->('services/fetchRoute', async (servisId, { rejectWithValue }) => {
+  { rejectValue: string; state: { services: ServicesState } }
+>('services/fetchRoute', async (servisId, { getState, rejectWithValue }) => {
   try {
-    return { servisId, route: await servicesApi.route(servisId) }
+    const sefer = getState().services.sefer
+    return { servisId, route: await servicesApi.route(servisId, sefer) }
   } catch (error) {
     return rejectWithValue(apiErrorMessage(error))
   }
@@ -55,7 +64,19 @@ export const fetchServiceRoute = createAsyncThunk<
 const servicesSlice = createSlice({
   name: 'services',
   initialState,
-  reducers: {},
+  reducers: {
+    /**
+     * Sefer değişince rotalar bayatlar: akşam güzergâhı sabahın tersi değil,
+     * bağımsız hesaplanıyor. Bu yüzden önbellek temizlenip yeniden çekiliyor.
+     */
+    setSefer(state, action: PayloadAction<Sefer>) {
+      if (state.sefer === action.payload) return
+      state.sefer = action.payload
+      state.routes = {}
+      state.routeStatus = {}
+      state.routeError = {}
+    },
+  },
   extraReducers: (builder) => {
     builder
       .addCase(fetchServices.pending, (state) => {
@@ -115,5 +136,7 @@ const servicesSlice = createSlice({
       )
   },
 })
+
+export const { setSefer } = servicesSlice.actions
 
 export default servicesSlice.reducer

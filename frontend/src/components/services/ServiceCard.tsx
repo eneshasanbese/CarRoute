@@ -74,9 +74,27 @@ export function ServiceCard({ service }: ServiceCardProps) {
               <ClockIcon className="size-3" />
               Kalkış
             </dt>
-            <dd className="font-medium tabular-nums">{service.kalkisSaati}</dd>
+            <dd className="font-medium tabular-nums">
+              {service.kalkisSaati}
+              <span className="text-muted-foreground">
+                {' → '}
+                {service.varisSaati}
+              </span>
+            </dd>
           </div>
         </dl>
+
+        {/*
+          Kural ihlali engellemez, işaretler: sistemin dürüst olması,
+          düzeltmesi ise atama katmanının işi.
+        */}
+        {service.kuralIhlali ? (
+          <p className="flex items-center gap-1.5 rounded-md bg-destructive/10 px-2 py-1.5 text-xs font-medium text-destructive">
+            <TriangleAlertIcon className="size-3.5 shrink-0" />
+            En uzun yolculuk {service.enUzunYolculukDk} dk — sınır{' '}
+            {service.azamiYolculukDk} dk
+          </p>
+        ) : null}
       </div>
     </Card>
   )

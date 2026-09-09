@@ -11,6 +11,7 @@ import { Link, useParams } from 'react-router-dom'
 import { ErrorState } from '@/components/common/ErrorState'
 import { RouteMap } from '@/components/map/RouteMap'
 import { RouteStopList } from '@/components/map/RouteStopList'
+import { SeferToggle } from '@/components/services/SeferToggle'
 import { CapacityGauge } from '@/components/services/CapacityGauge'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
@@ -24,7 +25,11 @@ import {
   selectRouteStatus,
   selectServiceById,
 } from '@/store/selectors'
-import { fetchServiceRoute, fetchServices } from '@/store/servicesSlice'
+import {
+  fetchServiceRoute,
+  fetchServices,
+  setSefer,
+} from '@/store/servicesSlice'
 import { CAPACITY_META, capacityLevel } from '@/lib/capacity'
 import { serviceColor } from '@/lib/serviceColors'
 import { formatKm, formatSure } from '@/lib/utils'
@@ -41,6 +46,7 @@ export function ServisDetay() {
   const route = useAppSelector(selectRoute(servisId))
   const routeStatus = useAppSelector(selectRouteStatus(servisId))
   const routeError = useAppSelector(selectRouteError(servisId))
+  const sefer = useAppSelector((state) => state.services.sefer)
 
   const load = useCallback(() => {
     if (!gecerliId) return
@@ -80,12 +86,24 @@ export function ServisDetay() {
           />
           <h1 className="text-2xl font-semibold">Servis-{servisId}</h1>
         </div>
-        {meta ? (
-          <Badge variant="outline" className={meta.badge}>
-            {level === 'under' ? <TriangleAlertIcon className="size-3" /> : null}
-            {meta.label}
-          </Badge>
-        ) : null}
+        <div className="flex items-center gap-2">
+          <SeferToggle
+            value={sefer}
+            onChange={(secim) => {
+              dispatch(setSefer(secim))
+              void dispatch(fetchServices(secim))
+              void dispatch(fetchServiceRoute(servisId))
+            }}
+          />
+          {meta ? (
+            <Badge variant="outline" className={meta.badge}>
+              {level === 'under' ? (
+                <TriangleAlertIcon className="size-3" />
+              ) : null}
+              {meta.label}
+            </Badge>
+          ) : null}
+        </div>
       </div>
 
       {servicesStatus === 'failed' ? (
