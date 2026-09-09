@@ -1,0 +1,27 @@
+# Rota motoru: duraklar arası gerçek yol güzergâhını ve mesafesini verir.
+# Bu servis çalışmıyorken uygulama kuş uçuşu tahmine geri düşer, çökmez.
+#
+# İLK KURULUM (bir kez):
+#   bash scripts/prepare-osrm.sh
+#   docker compose --env-file osrm/osrm.env up -d osrm
+#
+# Elinizde hazır bir OSRM imajı varsa aynı imajı hem hazırlıkta hem burada
+# kullanın — .osrm dosya biçimi OSRM sürümüne bağlıdır:
+#   OSRM_IMAGE=osrm/osrm-backend:v5.22.0 bash scripts/prepare-osrm.sh
+#   OSRM_IMAGE=osrm/osrm-backend:v5.22.0 docker compose up -d osrm
+#
+# Doğrulama:
+#   curl "http://localhost:5000/route/v1/driving/29.05,40.99;29.20,41.01?overview=false"
+
+services:
+  osrm:
+    image: ${OSRM_IMAGE:-osrm/osrm-backend}
+    container_name: carroute-osrm
+    command: >
+      osrm-routed --algorithm mld --max-table-size 2000
+      /data/${OSRM_DATASET:-turkey-latest}.osrm
+    volumes:
+      - ./osrm/data:/data
+    ports:
+      - '5000:5000'
+    restart: unless-stopped

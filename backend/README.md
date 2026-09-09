@@ -5,8 +5,12 @@ Spring Boot 4.1 · Java 21 · PostgreSQL. Personel servis rota sistemi API'si.
 ## Çalıştırma
 
 ```bash
+docker compose up -d osrm   # rota motoru — bkz. "Gerçek yol rotası (OSRM)"
 ./mvnw spring-boot:run
 ```
+
+OSRM ayakta değilse uygulama yine çalışır; rota kuş uçuşu tahmine düşer ve
+harita duraklar arasını düz çizgiyle bağlar.
 
 Uygulama açılışında iki adım çalışır (`@Order` ile sıralı):
 
@@ -44,10 +48,12 @@ kalkar, atanmış işçileri toplar ve ofiste biter
 (Sancaktepe, `40.9958 / 29.2069`). Kalkış saati ofiste 08:00'de olunacak şekilde
 geriye sayılır.
 
-**Maliyet.** Bacaklar mesafeyle değil **süreyle** ölçülür: kuş uçuşu mesafe
-karayolu çarpanıyla (1.35) düzeltilir ve o bölgenin sabah zirvesi ortalama hızına
-bölünür. Böylece trafiği yoğun kısa bir bacak, boş uzun bir bacaktan pahalı
-olabilir.
+**İki farklı maliyet var, bilerek.** _Sıralama ve atama_ kuş uçuşu mesafenin
+karayolu çarpanıyla (1.35) düzeltilmiş halini kullanır; atama sırasında binlerce
+kez hesaplandığı için ucuz olması şart. _Raporlanan_ mesafe, süre ve haritaya
+çizilen çizgi ise OSRM'den gelen gerçek yol verisidir — servis başına tek bir
+istek. Süre her iki durumda da yol mesafesinin o koridorun sabah zirvesi ortalama
+hızına bölünmesiyle bulunur, yani trafik verisi OSRM ile birlikte de kullanılır.
 
 **Trafik hızı** (`TrafficSpeedService`). Koordinat geohash-6 hücresine çevrilip
 `traffic_speed` tablosunda aranır. İBB veri seti ana arterleri ölçtüğü için her
@@ -75,14 +81,63 @@ Asgari 5 kişi kuralı yalnızca **dağıtım** aşamasında hedeflenir. Sonrada
 silinip bir servis 5'in altına düşerse servisler birleştirilmez; arayüz yalnızca
 uyarı rozeti gösterir.
 
+## Gerçek yol rotası (OSRM)
+
+Duraklar arasını düz çizgiyle birleştirmek yerine gerçek yolu takip etmek için
+bir rota motoru gerekir. Burada **OSRM** (Open Source Routing Machine) kendi
+makinemizde Docker'da çalışıyor: ücretsiz, API key yok, istek sınırı yok.
+
+`GET /api/services/{id}/route` yanıtındaki `geometry` alanı bu motordan gelir —
+yolu takip eden `[lat, lon]` noktaları. Aynı istekten her bacağın gerçek yol
+mesafesi de alınır, `oncekiDuraktanKm` ve `toplamKm` bu değerlerdir.
+
+**Kurulum** (bir kez; ~500 MB indirir, işlerken birkaç GB disk ve RAM ister):
+
+```bash
+bash scripts/prepare-osrm.sh                      # extract + partition + customize
+docker compose --env-file osrm/osrm.env up -d osrm
+curl "http://localhost:5000/route/v1/driving/29.05,40.99;29.20,41.01?overview=false"
+```
+
+Elinizde hazır bir OSRM imajı varsa `OSRM_IMAGE` ile verin. **Hazırlık ve
+çalıştırma aynı imajla yapılmalı**: OSRM'in ürettiği `.osrm` dosya biçimi sürüme
+bağlıdır, farklı sürümle hazırlanan veriyi `osrm-routed` "unsupported file
+version" diyerek reddeder.
+
+```bash
+OSRM_IMAGE=osrm/osrm-backend:v5.22.0 bash scripts/prepare-osrm.sh
+OSRM_IMAGE=osrm/osrm-backend:v5.22.0 docker compose up -d osrm
+```
+
+**Neden Türkiye eksraktı, İstanbul şehir eksraktı değil?** BBBike'ın İstanbul
+kutusu `40.90–41.27 lat / 28.66–29.27 lon`. Verideki işçiler ise `40.83–41.13` ve
+`29.03–29.32` aralığında; yani Tuzla/Pendik'in doğusu ve güneyi kutunun dışında
+kalıyor. Kesilen bölgedeki adresler için OSRM ya rota bulamaz ya da en yakın
+kenara yapıştırıp yanlış rota üretir — bu yüzden 645 MB'lık Türkiye eksraktı
+kullanılıyor.
+
+Motor kapalıysa `OsrmClient` bir kez uyarır ve kuş uçuşu hesaba döner; API
+`geometry: null` gönderir, arayüz de durakları düz çizgiyle bağlar. Yani OSRM
+zorunlu değil, sadece rotayı gerçekçi yapıyor.
+
+Denemelik olarak `carroute.osrm.base-url=https://router.project-osrm.org`
+verilebilir (OSRM'in herkese açık demo sunucusu, kurulum gerektirmez) ama bu
+sunucu istek sınırlıdır ve kalıcı kullanım için uygun değildir.
+
+Sonraki adım olarak OSRM'in `/table` servisi atama algoritmasına da bağlanabilir;
+o zaman sıralama da kuş uçuşu yerine gerçek yol süreleriyle yapılır.
+
 ## Ayarlar
 
 Hepsi `application.properties` üzerinden değiştirilebilir (`RouteSettings`):
 
 ```properties
-carroute.office.lat=40.995800
-carroute.office.lon=29.206900
+carroute.office.lat=41.010412
+carroute.office.lon=29.204878
 carroute.office.arrival=08:00
+carroute.osrm.enabled=true
+carroute.osrm.base-url=http://localhost:5000
+carroute.osrm.timeout-ms=8000
 carroute.capacity.min=5
 carroute.route.road-factor=1.35
 carroute.route.boarding-minutes=1.0
@@ -111,6 +166,12 @@ SELECT setval(pg_get_serial_sequence('worker','id'), (SELECT MAX(id) FROM worker
 SELECT setval(pg_get_serial_sequence('driver','id'), (SELECT MAX(id) FROM driver), true);
 SELECT setval(pg_get_serial_sequence('service_vehicle','id'), (SELECT MAX(id) FROM service_vehicle), true);
 ```
+
+**Ofis koordinatı düzeltildi.** Seed dosyasındaki `40.9958 / 29.2069` çifti
+adresle uyuşmuyor: o nokta Eyüp Sultan Mahallesi'ne, yani adreste yazan Meclis
+Mahallesi'nin 1.6 km güneyine düşüyor (Nominatim ile doğrulandı). Varsayılan
+artık Meclis Mahallesi merkezi: `41.010412 / 29.204878`. Binanın tam noktası
+biliniyorsa `carroute.office.lat/lon` ile verilmeli.
 
 **İlçe kolonu yok.** Arayüzdeki `ilce` alanı adres metninden çıkarılıyor
 (`AddressUtils.extractDistrict`), çünkü `worker` tablosunda ayrı bir ilçe kolonu

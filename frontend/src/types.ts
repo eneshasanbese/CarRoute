@@ -36,6 +36,18 @@ export interface RouteStop {
   oncekiDuraktanKm: number
 }
 
+/** Harita için yol çizgisi noktası: [lat, lon]. */
+export type LatLon = [number, number]
+
+/**
+ * Bir servisin güzergâhı. `geometry` yolu takip eden çizgidir; backend'de OSRM
+ * kapalıysa null gelir ve harita durakları düz çizgiyle birleştirir.
+ */
+export interface ServiceRoute {
+  stops: RouteStop[]
+  geometry: LatLon[] | null
+}
+
 export interface TrafficSnapshot {
   bucket: TrafficBucket
   yogunlukYuzde: number
@@ -70,7 +82,7 @@ export interface EmployeeInput {
 export interface MutationResult {
   employee: Employee | null
   service: Service
-  route: RouteStop[]
+  route: ServiceRoute
 }
 
 export interface GeocodeResult {

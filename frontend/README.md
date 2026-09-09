@@ -90,6 +90,13 @@ olayları aynı thunk'ları dispatch etmeli.
 - Servis renkleri servis id'sine sabitlenmiştir (10 ayırt edilebilir renk):
   [src/lib/serviceColors.ts](src/lib/serviceColors.ts).
 
+### Harita çizgisi
+
+Rota çizgisi backend'in gönderdiği `geometry` alanından çizilir — OSRM'in
+ürettiği, yolu takip eden `[lat, lon]` noktaları. Backend'de OSRM kapalıysa bu
+alan `null` gelir ve [RouteMap](src/components/map/RouteMap.tsx) durakları düz
+çizgiyle birleştirmeye geri döner.
+
 ### Harita soyutlaması
 
 `RouteMap` dışarıya yalnızca `RouteStop` ile konuşur; Leaflet tipleri prop'lara

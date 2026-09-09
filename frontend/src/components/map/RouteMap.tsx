@@ -11,11 +11,16 @@ import {
 } from 'react-leaflet'
 import { serviceColor } from '@/lib/serviceColors'
 import { cn, formatKm } from '@/lib/utils'
-import type { RouteStop } from '@/types'
+import type { LatLon, RouteStop } from '@/types'
 
 export interface MapRoute {
   servisId: number
   stops: RouteStop[]
+  /**
+   * Yolu takip eden çizgi. Backend'de OSRM kapalıysa null gelir; o durumda
+   * duraklar düz çizgiyle birleştirilir (kuş uçuşu görünüm).
+   */
+  geometry: LatLon[] | null
 }
 
 interface RouteMapProps {
@@ -30,8 +35,8 @@ interface RouteMapProps {
 const ISTANBUL_MERKEZ: [number, number] = [41.03, 28.95]
 
 /**
- * Harita soyutlaması. Dışarıya sadece alan tipleri (`RouteStop`) ile konuşur;
- * Leaflet'e özgü hiçbir tip prop'lara sızmaz. Mapbox GL JS'e geçilmek
+ * Harita soyutlaması. Dışarıya sadece alan tipleri (`RouteStop`, `LatLon`) ile
+ * konuşur; Leaflet'e özgü hiçbir tip prop'lara sızmaz. Mapbox GL JS'e geçilmek
  * istendiğinde yalnızca bu dosyanın gövdesi değişir.
  */
 export function RouteMap({
@@ -48,7 +53,9 @@ export function RouteMap({
   }, [routes])
 
   return (
-    <div className={cn('overflow-hidden rounded-xl border border-border', className)}>
+    <div
+      className={cn('overflow-hidden rounded-xl border border-border', className)}
+    >
       <MapContainer
         center={ISTANBUL_MERKEZ}
         zoom={10}
@@ -88,7 +95,12 @@ function ServiceRouteLayer({
   showStopNumbers: boolean
 }) {
   const renk = serviceColor(route.servisId)
-  const cizgi = route.stops.map((s) => [s.lat, s.lon] as [number, number])
+
+  // OSRM geometrisi varsa yolu takip eder; yoksa duraklar düz çizgiyle bağlanır.
+  const cizgi: Array<[number, number]> =
+    route.geometry && route.geometry.length > 1
+      ? route.geometry
+      : route.stops.map((s) => [s.lat, s.lon])
 
   return (
     <>
@@ -122,7 +134,7 @@ function ServiceRouteLayer({
   )
 }
 
-/** Depo (garaj/ofis) durakları kare, personel durakları numaralı daire. */
+/** Depo (kalkış/ofis) durakları kare, personel durakları numaralı daire. */
 function stopIcon(
   stop: RouteStop,
   renk: string,
@@ -132,7 +144,7 @@ function stopIcon(
   const depo = stop.employeeId === null
   const etiket = depo
     ? stop.durakNo === 0
-      ? 'G'
+      ? 'K'
       : 'O'
     : showStopNumbers
       ? String(stop.durakNo)
@@ -163,7 +175,7 @@ function FitBounds({ points }: { points: Array<[number, number]> | null }) {
   useEffect(() => {
     if (!points || points.length === 0) return
     map.fitBounds(L.latLngBounds(points), { padding: [40, 40] })
-    // Sadece rota kümesi değiştiğinde yeniden çerçevele; kullanıcının
+    // Sadece durak kümesi değiştiğinde yeniden çerçevele; kullanıcının
     // kaydırma/yakınlaştırma hareketini her poll'da bozmamak için.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [anahtar, map])

@@ -1,5 +1,5 @@
 import { axiosClient } from '@/api/axiosClient'
-import type { RouteStop, Service } from '@/types'
+import type { Service, ServiceRoute } from '@/types'
 
 export const servicesApi = {
   async list(): Promise<Service[]> {
@@ -7,8 +7,8 @@ export const servicesApi = {
     return data
   },
 
-  async route(id: number): Promise<RouteStop[]> {
-    const { data } = await axiosClient.get<RouteStop[]>(
+  async route(id: number): Promise<ServiceRoute> {
+    const { data } = await axiosClient.get<ServiceRoute>(
       `/api/services/${id}/route`,
     )
     return data

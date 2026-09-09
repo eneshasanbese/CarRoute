@@ -7,14 +7,14 @@ import {
   updateEmployee,
   type RequestStatus,
 } from '@/store/employeesSlice'
-import type { RouteStop, Service } from '@/types'
+import type { Service, ServiceRoute } from '@/types'
 
 interface ServicesState {
   items: Service[]
   status: RequestStatus
   error: string | null
-  /** Servis id -> sıralı duraklar. */
-  routes: Record<number, RouteStop[]>
+  /** Servis id -> duraklar + yol geometrisi. */
+  routes: Record<number, ServiceRoute>
   routeStatus: Record<number, RequestStatus>
   routeError: Record<number, string | null>
 }
@@ -41,12 +41,12 @@ export const fetchServices = createAsyncThunk<
 })
 
 export const fetchServiceRoute = createAsyncThunk<
-  { servisId: number; stops: RouteStop[] },
+  { servisId: number; route: ServiceRoute },
   number,
   { rejectValue: string }
 >('services/fetchRoute', async (servisId, { rejectWithValue }) => {
   try {
-    return { servisId, stops: await servicesApi.route(servisId) }
+    return { servisId, route: await servicesApi.route(servisId) }
   } catch (error) {
     return rejectWithValue(apiErrorMessage(error))
   }
@@ -79,9 +79,9 @@ const servicesSlice = createSlice({
         state.routeError[servisId] = null
       })
       .addCase(fetchServiceRoute.fulfilled, (state, action) => {
-        const { servisId, stops } = action.payload
+        const { servisId, route } = action.payload
         state.routeStatus[servisId] = 'succeeded'
-        state.routes[servisId] = stops
+        state.routes[servisId] = route
       })
       .addCase(fetchServiceRoute.rejected, (state, action) => {
         const servisId = action.meta.arg

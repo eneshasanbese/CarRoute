@@ -15,11 +15,18 @@ import lombok.Getter;
 @Getter
 public class RouteSettings {
 
-    /** Ofis: Meclis Mah. Sancaktepe/İstanbul — herkesin varış noktası. */
-    @Value("${carroute.office.lat:40.995800}")
+    /**
+     * Ofis: Meclis Mah. Sancaktepe/İstanbul — herkesin varış noktası.
+     *
+     * <p>
+     * Seed dosyasındaki 40.9958 / 29.2069 çifti adresle uyuşmuyor: o nokta
+     * Eyüp Sultan Mahallesi'ne, yani adreste yazan Meclis Mahallesi'nin 1.6 km
+     * güneyine düşüyor. Buradaki değer Meclis Mahallesi merkezidir.
+     */
+    @Value("${carroute.office.lat:41.010412}")
     private double officeLat;
 
-    @Value("${carroute.office.lon:29.206900}")
+    @Value("${carroute.office.lon:29.204878}")
     private double officeLon;
 
     @Value("${carroute.office.label:Ofis (Sancaktepe)}")

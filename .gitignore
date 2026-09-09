@@ -1,0 +1,4 @@
+# OSRM verisi: yüzlerce MB, üretilmiş dosyalar. Kurulum için
+# scripts/prepare-osrm.sh çalıştırılır.
+osrm/data/
+osrm/osrm.env

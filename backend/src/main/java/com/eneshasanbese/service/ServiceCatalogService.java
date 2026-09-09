@@ -9,22 +9,23 @@ import org.springframework.transaction.annotation.Transactional;
 
 import com.eneshasanbese.dto.EmployeeDto;
 import com.eneshasanbese.dto.MutationResultDto;
-import com.eneshasanbese.dto.RouteStopDto;
+import com.eneshasanbese.dto.RouteDto;
 import com.eneshasanbese.dto.ServiceDto;
 import com.eneshasanbese.entity.Driver;
 import com.eneshasanbese.entity.ServiceVehicle;
 import com.eneshasanbese.entity.Worker;
 import com.eneshasanbese.repository.ServiceVehicleRepository;
 import com.eneshasanbese.repository.WorkerRepository;
-import com.eneshasanbese.service.RouteService.RoutePlan;
+import com.eneshasanbese.service.RouteService.RouteResult;
 
 /**
  * Servis listesi ve güzergâh sorguları.
  *
  * <p>
  * Durak sırası veritabanında tutulmaz; her istekte yeniden hesaplanır. Bir
- * serviste en fazla 15 kişi olduğu için bu hesap milisaniyeler sürer ve
- * atama değiştiği anda sonucun bayatlama ihtimalini ortadan kaldırır.
+ * serviste en fazla 15 kişi olduğu için bu hesap ucuzdur ve atama değiştiği anda
+ * sonucun bayatlama ihtimalini ortadan kaldırır. OSRM açıkken servis başına bir
+ * yol isteği yapılır.
  */
 @Service
 public class ServiceCatalogService {
@@ -51,8 +52,10 @@ public class ServiceCatalogService {
 
         return serviceVehicleRepository.findAllByOrderByIdAsc().stream()
                 .map(vehicle -> {
-                    RoutePlan plan = planFor(vehicle, drivers.get(vehicle.getId()));
-                    return routeService.toService(vehicle, plan);
+                    List<Worker> workers = workersOf(vehicle);
+                    RouteResult result = routeService.build(
+                            vehicle, drivers.get(vehicle.getId()), workers);
+                    return routeService.toService(vehicle, result, workers.size());
                 })
                 .toList();
     }
@@ -60,33 +63,37 @@ public class ServiceCatalogService {
     @Transactional(readOnly = true)
     public ServiceDto serviceOf(Long vehicleId) {
         ServiceVehicle vehicle = requireVehicle(vehicleId);
-        Driver driver = assignmentService.driversByVehicleId().get(vehicleId);
-        return routeService.toService(vehicle, planFor(vehicle, driver));
+        List<Worker> workers = workersOf(vehicle);
+        RouteResult result = routeService.build(vehicle, driverOf(vehicleId), workers);
+        return routeService.toService(vehicle, result, workers.size());
     }
 
     @Transactional(readOnly = true)
-    public List<RouteStopDto> routeOf(Long vehicleId) {
+    public RouteDto routeOf(Long vehicleId) {
         ServiceVehicle vehicle = requireVehicle(vehicleId);
-        Driver driver = assignmentService.driversByVehicleId().get(vehicleId);
-        return routeService.toStops(vehicle, driver, planFor(vehicle, driver));
+        RouteResult result = routeService.build(vehicle, driverOf(vehicleId), workersOf(vehicle));
+        return routeService.toRoute(result);
     }
 
     /** Ekleme/güncelleme/silme yanıtı: etkilenen servisin güncel hali + rotası. */
     @Transactional(readOnly = true)
     public MutationResultDto mutationResult(EmployeeDto employee, Long vehicleId) {
         ServiceVehicle vehicle = requireVehicle(vehicleId);
-        Driver driver = assignmentService.driversByVehicleId().get(vehicleId);
-        RoutePlan plan = planFor(vehicle, driver);
+        List<Worker> workers = workersOf(vehicle);
+        RouteResult result = routeService.build(vehicle, driverOf(vehicleId), workers);
 
         return new MutationResultDto(
                 employee,
-                routeService.toService(vehicle, plan),
-                routeService.toStops(vehicle, driver, plan));
+                routeService.toService(vehicle, result, workers.size()),
+                routeService.toRoute(result));
     }
 
-    private RoutePlan planFor(ServiceVehicle vehicle, Driver driver) {
-        List<Worker> workers = workerRepository.findByServiceVehicleId(vehicle.getId());
-        return routeService.plan(driver, workers);
+    private List<Worker> workersOf(ServiceVehicle vehicle) {
+        return workerRepository.findByServiceVehicleId(vehicle.getId());
+    }
+
+    private Driver driverOf(Long vehicleId) {
+        return assignmentService.driversByVehicleId().get(vehicleId);
     }
 
     private ServiceVehicle requireVehicle(Long vehicleId) {

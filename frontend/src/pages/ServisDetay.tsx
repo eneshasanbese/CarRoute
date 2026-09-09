@@ -156,7 +156,7 @@ export function ServisDetay() {
                 ))}
               </div>
             ) : (
-              <RouteStopList stops={route ?? []} />
+              <RouteStopList stops={route?.stops ?? []} />
             )}
           </CardContent>
         </Card>
@@ -172,7 +172,13 @@ export function ServisDetay() {
         ) : (
           <RouteMap
             className="h-[560px]"
-            routes={[{ servisId, stops: route ?? [] }]}
+            routes={[
+              {
+                servisId,
+                stops: route?.stops ?? [],
+                geometry: route?.geometry ?? null,
+              },
+            ]}
           />
         )}
       </div>

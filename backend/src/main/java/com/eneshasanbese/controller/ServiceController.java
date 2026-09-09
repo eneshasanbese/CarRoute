@@ -9,7 +9,7 @@ import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
 
-import com.eneshasanbese.dto.RouteStopDto;
+import com.eneshasanbese.dto.RouteDto;
 import com.eneshasanbese.dto.ServiceDto;
 import com.eneshasanbese.service.AssignmentService;
 import com.eneshasanbese.service.ServiceCatalogService;
@@ -39,7 +39,7 @@ public class ServiceController {
     }
 
     @GetMapping("/{id}/route")
-    public List<RouteStopDto> route(@PathVariable Long id) {
+    public RouteDto route(@PathVariable Long id) {
         return serviceCatalogService.routeOf(id);
     }
 

@@ -43,11 +43,12 @@ export function HaritaGenel() {
 
   const gorunurRotalar = services
     .filter((service) => !hiddenServiceIds.includes(service.id))
-    .map((service) => ({ servisId: service.id, stops: routes[service.id] }))
-    .filter(
-      (rota): rota is { servisId: number; stops: NonNullable<typeof rota.stops> } =>
-        rota.stops !== undefined,
-    )
+    .flatMap((service) => {
+      const rota = routes[service.id]
+      return rota
+        ? [{ servisId: service.id, stops: rota.stops, geometry: rota.geometry }]
+        : []
+    })
 
   if (status === 'failed') {
     return (
