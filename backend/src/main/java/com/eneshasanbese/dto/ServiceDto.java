@@ -1,12 +1,12 @@
 package com.eneshasanbese.dto;
 
-/** Arayüzdeki {@code Service} tipinin birebir karşılığı. */
+//Servisin karşılığı
 public record ServiceDto(
-        Long id,
-        int kisiSayisi,
-        int minKapasite,
-        int maxKapasite,
-        double toplamKm,
-        int tahminiSureDk,
-        String kalkisSaati) {
+                Long id,
+                int kisiSayisi,
+                int minKapasite,
+                int maxKapasite,
+                double toplamKm,
+                int tahminiSureDk,
+                String kalkisSaati) {
 }

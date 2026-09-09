@@ -1,15 +1,12 @@
 package com.eneshasanbese.dto;
 
-/**
- * Sıralı durak. {@code employeeId} null ise durak bir personel değil, rotanın
- * başlangıcı (şoförün evi) veya bitişidir (ofis).
- */
+// Duraklar. employeeId null ise durak boş, ofis veya kalkış noktasıdır.
 public record RouteStopDto(
-        Long servisId,
-        int durakNo,
-        Long employeeId,
-        String adSoyad,
-        double lat,
-        double lon,
-        double oncekiDuraktanKm) {
+                Long servisId,
+                int durakNo,
+                Long employeeId,
+                String adSoyad,
+                double lat,
+                double lon,
+                double oncekiDuraktanKm) {
 }

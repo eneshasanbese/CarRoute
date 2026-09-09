@@ -14,18 +14,25 @@ import org.springframework.web.client.RestClient;
 import com.fasterxml.jackson.annotation.JsonIgnoreProperties;
 
 /**
- * OSRM (Open Source Routing Machine) istemcisi — duraklar arasındaki gerçek yol
- * güzergâhını ve yol mesafesini verir.
+ * OSRM (Open Source Routing Machine) istemcisi. İki ayrı servisini kullanıyoruz
+ * ve ikisi farklı soruya cevap veriyor:
+ *
+ * <ul>
+ * <li>{@link #distanceMatrixMeters} — {@code /table}: bir nokta kümesindeki
+ * <b>bütün ikililerin</b> yol mesafesi. Durak sırasına karar veren algoritmanın
+ * ihtiyacı budur: "5. kişiyle 9. kişinin yerini değiştirsem ne olur" sorusu,
+ * henüz denenmemiş bacakların maliyetini bilmeyi gerektirir. Aynı bilgiyi
+ * {@code /route} ile toplamak N² ayrı istek ederdi; {@code /table} tek istekte
+ * N×N mesafe döndürür.</li>
+ * <li>{@link #route} — {@code /route}: sırası <b>zaten belli</b> noktaları
+ * gerçek yollardan bağlayan çizgi ve o sıranın bacak mesafeleri. Haritaya
+ * çizilen şey budur.</li>
+ * </ul>
  *
  * <p>
- * Bu olmadan rota, noktaları düz çizgiyle birleştiren bir kuş uçuşu tahminden
- * ibaret kalır. OSRM'e tek bir {@code /route} isteği atarak hem haritaya
- * çizilecek yol geometrisini hem de her bacağın gerçek metre cinsinden
- * uzunluğunu aynı anda alıyoruz.
- *
- * <p>
- * Kapalıysa ya da ulaşılamıyorsa {@link #route} boş döner ve çağıran taraf
- * kuş uçuşu hesaba geri düşer — uygulama OSRM olmadan da çalışır.
+ * İkisi de ulaşılamaz olabilir. O durumda metotlar boş döner ve çağıran taraf
+ * kuş uçuşu × karayolu çarpanı tahminine geri düşer — uygulama OSRM olmadan da
+ * çalışır, sadece sıralama körleşir ve harita düz çizgiye iner.
  */
 @Service
 public class OsrmClient {
@@ -33,6 +40,7 @@ public class OsrmClient {
     private static final Logger log = LoggerFactory.getLogger(OsrmClient.class);
 
     private final boolean enabled;
+    private final boolean tableEnabled;
     private final String baseUrl;
     private final RestClient restClient;
     /** Arka arkaya hata alındığında logu doldurmamak için. */
@@ -40,9 +48,11 @@ public class OsrmClient {
 
     public OsrmClient(
             @Value("${carroute.osrm.enabled:true}") boolean enabled,
+            @Value("${carroute.osrm.table-enabled:true}") boolean tableEnabled,
             @Value("${carroute.osrm.base-url:http://localhost:5000}") String baseUrl,
             @Value("${carroute.osrm.timeout-ms:8000}") int timeoutMs) {
         this.enabled = enabled;
+        this.tableEnabled = tableEnabled;
         this.baseUrl = baseUrl.replaceAll("/+$", "");
 
         SimpleClientHttpRequestFactory factory = new SimpleClientHttpRequestFactory();
@@ -60,6 +70,78 @@ public class OsrmClient {
     public boolean isEnabled() {
         return enabled;
     }
+
+    public boolean isTableEnabled() {
+        return enabled && tableEnabled;
+    }
+
+    // --------------------------------------------------------------- /table
+
+    /**
+     * Nokta kümesindeki bütün ikililerin yol mesafesi (metre).
+     *
+     * <p>
+     * <b>Matris simetrik değildir</b> — tek yön, bölünmüş yol ve köprü çıkışları
+     * yüzünden A→B ile B→A farklı çıkabilir. Bunu kullanan sıralama kodunun
+     * simetri varsayan kısayollar kullanmaması gerekir.
+     *
+     * <p>
+     * Ulaşılamayan çiftler için OSRM {@code null} döndürür; burada {@code NaN}'a
+     * çevriliyor ve çağıran taraf yalnızca o bacak için kuş uçuşu tahmine
+     * düşüyor.
+     *
+     * <p>
+     * OSRM'in {@code --max-table-size} sınırı nokta sayısını sınırlar
+     * (docker-compose'da 2000). Bir servis en fazla 15 kişi + şoför + ofis = 17
+     * nokta ürettiği için bu sınıra yaklaşılmıyor.
+     *
+     * @param points [lat, lon] noktaları (en az 2 tane)
+     * @return metre cinsinden N×N matris; servis kapalı, ulaşılamaz ya da yanıt
+     *         beklenen boyutta değilse boş
+     */
+    public Optional<double[][]> distanceMatrixMeters(List<double[]> points) {
+        if (!isTableEnabled() || points.size() < 2) {
+            return Optional.empty();
+        }
+
+        int size = points.size();
+
+        try {
+            OsrmTableResponse response = restClient.get()
+                    .uri(uriBuilder -> uriBuilder
+                            .path("/table/v1/driving/{coordinates}")
+                            .queryParam("annotations", "distance")
+                            .build(coordinates(points)))
+                    .retrieve()
+                    .body(OsrmTableResponse.class);
+
+            if (response == null || !"Ok".equals(response.code())
+                    || response.distances() == null || response.distances().size() != size) {
+                return Optional.empty();
+            }
+
+            double[][] matrix = new double[size][size];
+            for (int row = 0; row < size; row++) {
+                List<Double> values = response.distances().get(row);
+                if (values == null || values.size() != size) {
+                    return Optional.empty();
+                }
+                for (int column = 0; column < size; column++) {
+                    Double value = values.get(column);
+                    matrix[row][column] = value == null ? Double.NaN : value;
+                }
+            }
+
+            warned = false;
+            return Optional.of(matrix);
+
+        } catch (Exception exception) {
+            warn("/table", exception);
+            return Optional.empty();
+        }
+    }
+
+    // --------------------------------------------------------------- /route
 
     /** Bir bacağın yol mesafesi (metre) ve süresi (saniye). */
     public record Leg(double distanceMeters, double durationSeconds) {
@@ -83,15 +165,6 @@ public class OsrmClient {
             return Optional.empty();
         }
 
-        // OSRM koordinatları lon,lat sırasıyla ve ";" ile ayrılmış bekler.
-        StringBuilder coordinates = new StringBuilder();
-        for (double[] point : points) {
-            if (!coordinates.isEmpty()) {
-                coordinates.append(';');
-            }
-            coordinates.append(point[1]).append(',').append(point[0]);
-        }
-
         try {
             OsrmRouteResponse response = restClient.get()
                     .uri(uriBuilder -> uriBuilder
@@ -99,7 +172,7 @@ public class OsrmClient {
                             .queryParam("overview", "full")
                             .queryParam("geometries", "geojson")
                             .queryParam("steps", "false")
-                            .build(coordinates.toString()))
+                            .build(coordinates(points)))
                     .retrieve()
                     .body(OsrmRouteResponse.class);
 
@@ -128,16 +201,38 @@ public class OsrmClient {
             return Optional.of(new Route(geometry, legs, osrmRoute.distance()));
 
         } catch (Exception exception) {
-            if (!warned) {
-                warned = true;
-                log.warn("OSRM'e ulaşılamadı ({}), kuş uçuşu hesaba dönülüyor: {}",
-                        baseUrl, exception.getMessage());
-            }
+            warn("/route", exception);
             return Optional.empty();
         }
     }
 
+    // ------------------------------------------------------------- yardımcı
+
+    /** OSRM koordinatları {@code lon,lat} sırasıyla ve ";" ile ayrılmış bekler. */
+    private static String coordinates(List<double[]> points) {
+        StringBuilder builder = new StringBuilder();
+        for (double[] point : points) {
+            if (!builder.isEmpty()) {
+                builder.append(';');
+            }
+            builder.append(point[1]).append(',').append(point[0]);
+        }
+        return builder.toString();
+    }
+
+    private void warn(String endpoint, Exception exception) {
+        if (!warned) {
+            warned = true;
+            log.warn("OSRM {} çağrısı başarısız ({}), kuş uçuşu hesaba dönülüyor: {}",
+                    endpoint, baseUrl, exception.getMessage());
+        }
+    }
+
     // --------------------------------------------------- OSRM yanıt modelleri
+
+    @JsonIgnoreProperties(ignoreUnknown = true)
+    private record OsrmTableResponse(String code, List<List<Double>> distances) {
+    }
 
     @JsonIgnoreProperties(ignoreUnknown = true)
     private record OsrmRouteResponse(String code, List<OsrmRoute> routes) {

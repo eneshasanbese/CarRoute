@@ -13,4 +13,6 @@ public interface TrafficSpeedRepository extends JpaRepository<TrafficSpeed, Long
     Optional<TrafficSpeed> findByGeohashAndTimeSlot(String geohash, String timeSlot);
 
     List<TrafficSpeed> findByTimeSlot(String timeSlot);
+
+    long countByTimeSlot(String timeSlot);
 }

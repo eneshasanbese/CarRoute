@@ -41,6 +41,13 @@ import com.eneshasanbese.util.GeoUtils;
  * </ol>
  *
  * <p>
+ * <b>Maliyet kaynağı iki türlü.</b> Yukarıdaki üç aşama kuş uçuşu mesafeyle
+ * çalışır; 100 işçi × 10 servis × birkaç tur, yüz binlerce değerlendirme demek
+ * ve buraya HTTP isteği koymak dağıtımı kullanılamaz hale getirirdi. Buna
+ * karşılık {@link #assignOne} — yani sonradan eklenen tek bir personel —
+ * OSRM'in yol matrisini kullanır: orada toplam 10 istek yeterli.
+ *
+ * <p>
  * Asgari doluluk yalnızca <em>dağıtım</em> aşamasında hedeflenir. Sonradan
  * personel silinip bir servis 5'in altına düşerse servisler birleştirilmez;
  * arayüz sadece uyarı rozeti gösterir.
@@ -119,6 +126,13 @@ public class AssignmentService {
     /**
      * Tek bir işçiyi, rotasını en az uzatan servise yerleştirir.
      *
+     * <p>
+     * Toplu dağıtımın aksine burada <b>gerçek yol maliyeti</b> kullanılır:
+     * {@link RouteService#insertionCost} her servis için OSRM'in {@code /table}
+     * servisinden bir yol matrisi alır. Tek kişilik ekleme kullanıcının
+     * beklediği bir işlem olduğu için servis sayısı kadar (10) istek kabul
+     * edilebilir; OSRM kapalıysa aynı hesap kuş uçuşu tahminle yapılır.
+     *
      * @return işçinin atandığı servis
      * @throws IllegalStateException bütün servisler doluysa
      */
@@ -138,11 +152,9 @@ public class AssignmentService {
             }
 
             Driver driver = drivers.get(vehicle.getId());
-            double before = current.isEmpty() ? 0 : routeService.estimateMinutes(driver, current);
-
-            List<Worker> candidate = new ArrayList<>(current);
-            candidate.add(worker);
-            double delta = routeService.estimateMinutes(driver, candidate) - before;
+            // Servis başına tek /table isteği; adaysız ve adaylı turlar aynı yol
+            // matrisi üzerinde kurulduğu için fark gerçek sapmayı ölçer.
+            double delta = routeService.insertionCost(driver, current, worker).delta();
 
             if (delta < bestDelta) {
                 bestDelta = delta;

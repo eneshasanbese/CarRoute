@@ -33,6 +33,8 @@ public class TrafficSpeedService {
 
     public static final String SLOT_MORNING = "SABAH_ZIRVE";
     public static final String SLOT_EVENING = "AKSAM_ZIRVE";
+    /** Gece (01:00–05:00): her hücrenin kendi serbest akış referansı. */
+    public static final String SLOT_FREE_FLOW = "SERBEST_AKIS";
 
     private static final int CELL_PRECISION = 6;
 
@@ -78,6 +80,50 @@ public class TrafficSpeedService {
         }
 
         return index.cityAverage() > 0 ? index.cityAverage() : settings.getFallbackSpeedKmh();
+    }
+
+    /**
+     * Bir noktanın tıkanıklık çarpanı: o hücre, kendi serbest akışına göre kaç
+     * kat yavaş.
+     *
+     * <p>
+     * <b>Neden mutlak hız yerine oran:</b> İBB veri seti konumla anahtarlanmış,
+     * yolla değil. Bir hücrenin ölçülen hızı o hücredeki <em>ana arterin</em>
+     * hızıdır; aynı hücredeki ara sokağa uygulanınca "boş sokakta 100 km/sa"
+     * saçmalığı çıkıyor. Oran ise taşınabilir: "bu bölge sabahları kendi
+     * normalinden %25 yavaş" ifadesi hem artere hem sokağa makul biçimde
+     * uygulanabilir. Çarpan, mutlak hızı OSRM'den (yol sınıfını bilen taraf)
+     * gelen süreye uygulanmak üzere üretilir.
+     *
+     * <p>
+     * 1'in altına inemez: tıkanıklık bir aracı serbest akıştan hızlı yapamaz.
+     * Bu taban, sürenin fiziksel olarak imkânsız değerlere düşmesini yapısal
+     * olarak engeller.
+     *
+     * @return çarpan (≥ 1). Serbest akış verisi yoksa 1 döner, yani süre OSRM'in
+     *         boş yol tahmininde kalır.
+     */
+    public double congestionFactor(double lat, double lon, String timeSlot) {
+        if (!hasFreeFlowData()) {
+            return 1.0;
+        }
+
+        double peak = speedKmh(lat, lon, timeSlot);
+        double freeFlow = speedKmh(lat, lon, SLOT_FREE_FLOW);
+
+        if (peak <= 0 || freeFlow <= 0) {
+            return 1.0;
+        }
+
+        return Math.max(1.0, freeFlow / peak);
+    }
+
+    /**
+     * Serbest akış dilimi yüklü mü? Yüklü değilse çarpan tabanlı süre modeli
+     * devre dışı kalır ve çağıran taraf hız tabanlı eski hesaba döner.
+     */
+    public boolean hasFreeFlowData() {
+        return !indexCache.computeIfAbsent(SLOT_FREE_FLOW, this::buildIndex).byCell().isEmpty();
     }
 
     /** İki uç noktanın hücrelerinden bacak hızını türetir. */

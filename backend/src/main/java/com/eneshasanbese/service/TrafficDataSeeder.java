@@ -30,9 +30,21 @@ public class TrafficDataSeeder implements CommandLineRunner {
 
     @Override
     public void run(String... args) throws Exception {
-        if (repository.count() > 0) {
+        // Beklenen dilimlerin hepsi yüklü mü? Gece dilimi sonradan eklendiği için
+        // eski bir veritabanında sabah/akşam dolu, gece boş olabilir; o durumda
+        // tablo türetilmiş veri olduğundan tamamı yeniden üretilir.
+        boolean eksikDilimVar = repository.countByTimeSlot(TrafficSpeedService.SLOT_FREE_FLOW) == 0
+                || repository.countByTimeSlot(TrafficSpeedService.SLOT_MORNING) == 0
+                || repository.countByTimeSlot(TrafficSpeedService.SLOT_EVENING) == 0;
+
+        if (!eksikDilimVar) {
             System.out.println("Trafik verisi zaten yüklü, atlıyorum.");
             return;
+        }
+
+        if (repository.count() > 0) {
+            System.out.println("Trafik tablosunda eksik zaman dilimi var, tamamı yeniden üretiliyor...");
+            repository.deleteAllInBatch();
         }
 
         Map<String, Map<String, Accumulator>> summary = new HashMap<>();
@@ -85,19 +97,37 @@ public class TrafficDataSeeder implements CommandLineRunner {
         }
     }
 
+    /**
+     * Bir ölçüm satırının hangi zaman dilimine düştüğü; dilim dışıysa null.
+     *
+     * <p>
+     * <b>Gece dilimi neden var:</b> tıkanıklık ancak bir referansa göre
+     * ölçülebilir. Her hücrenin gece hızı, o hücrenin <em>kendi</em> serbest akış
+     * hızıdır — ara sokak için ~40, otoyol için ~110. Zirve hızını buna
+     * bölünce çıkan oran, mutlak hızın aksine yollar arasında taşınabilir bir
+     * büyüklüktür. {@code TrafficSpeedService.congestionFactor} bunu kullanır.
+     *
+     * <p>
+     * 01:00–05:00 seçildi: trafik en seyrek, ama ölçüm yapacak kadar araç var.
+     */
     private String getTimeSlot(int hour, int minute) {
         int totalMinutes = hour * 60 + minute;
 
+        int geceBaslangic = 1 * 60; // 01:00
+        int geceBitis = 5 * 60; // 05:00
         int sabahBaslangic = 6 * 60; // 06:00
         int sabahBitis = 8 * 60; // 08:00
         int aksamBaslangic = 17 * 60 + 30; // 17:30
         int aksamBitis = 19 * 60; // 19:00
 
+        if (totalMinutes >= geceBaslangic && totalMinutes < geceBitis) {
+            return TrafficSpeedService.SLOT_FREE_FLOW;
+        }
         if (totalMinutes >= sabahBaslangic && totalMinutes < sabahBitis) {
-            return "SABAH_ZIRVE";
+            return TrafficSpeedService.SLOT_MORNING;
         }
         if (totalMinutes >= aksamBaslangic && totalMinutes < aksamBitis) {
-            return "AKSAM_ZIRVE";
+            return TrafficSpeedService.SLOT_EVENING;
         }
         return null;
     }

@@ -1,27 +1,56 @@
 # Rota motoru: duraklar arası gerçek yol güzergâhını ve mesafesini verir.
 # Bu servis çalışmıyorken uygulama kuş uçuşu tahmine geri düşer, çökmez.
 #
-# İLK KURULUM (bir kez):
-#   bash scripts/prepare-osrm.sh
-#   docker compose --env-file osrm/osrm.env up -d osrm
+# ÇALIŞTIRMA:
+#   docker compose up -d osrm
 #
-# Elinizde hazır bir OSRM imajı varsa aynı imajı hem hazırlıkta hem burada
-# kullanın — .osrm dosya biçimi OSRM sürümüne bağlıdır:
-#   OSRM_IMAGE=osrm/osrm-backend:v5.22.0 bash scripts/prepare-osrm.sh
-#   OSRM_IMAGE=osrm/osrm-backend:v5.22.0 docker compose up -d osrm
+# Varsayılanlar bu depodaki hazır İstanbul eksraktına göre ayarlı
+# (orm-data/istanbul.osrm, CH ile hazırlanmış). Veri ~370 MB olduğu için
+# depoya dahil değil, .gitignore'da.
 #
-# Doğrulama:
+# DOĞRULAMA:
 #   curl "http://localhost:5000/route/v1/driving/29.05,40.99;29.20,41.01?overview=false"
+#   curl "http://localhost:5000/table/v1/driving/29.05,40.99;29.11,41.02;29.20,41.01?annotations=distance"
+#
+# BAŞKA BİR VERİ SETİYLE:
+#   scripts/prepare-osrm.sh Türkiye eksraktını indirip **MLD** boru hattıyla
+#   (extract + partition + customize) hazırlar. Onu kullanacaksanız algoritmayı
+#   da değiştirmeniz gerekir — .osrm dosyaları hangi boru hattıyla üretildiyse
+#   sadece o algoritmayla açılır:
+#
+#     OSRM_DATA_DIR=./osrm/data OSRM_DATASET=turkey-latest OSRM_ALGORITHM=mld \
+#       docker compose up -d osrm
+#
+#   Ya da bu değerleri osrm/osrm.env dosyasına yazıp:
+#     docker compose --env-file osrm/osrm.env up -d osrm
+#
+# İMAJ SÜRÜMÜ: veriyi hazırlayan imaj ile çalıştıran imaj aynı olmalı. Farklı
+# sürümle hazırlanan veriyi osrm-routed "unsupported file version" diyerek
+# reddeder. Gerekirse OSRM_IMAGE ile sabitleyin.
 
 services:
   osrm:
     image: ${OSRM_IMAGE:-osrm/osrm-backend}
     container_name: carroute-osrm
     command: >
-      osrm-routed --algorithm mld --max-table-size 2000
-      /data/${OSRM_DATASET:-turkey-latest}.osrm
+      osrm-routed
+      --algorithm ${OSRM_ALGORITHM:-ch}
+      --max-table-size ${OSRM_MAX_TABLE_SIZE:-2000}
+      /data/${OSRM_DATASET:-istanbul}.osrm
     volumes:
-      - ./osrm/data:/data
+      # Sadece okunuyor; motorun veri dizinini değiştirmesi gerekmiyor.
+      - ${OSRM_DATA_DIR:-./orm-data}:/data:ro
     ports:
       - '5000:5000'
     restart: unless-stopped
+    healthcheck:
+      # /health yok; en ucuz gerçek sorgu bir rota isteği.
+      test:
+        [
+          'CMD-SHELL',
+          'osrm-routed --version > /dev/null 2>&1 || exit 1',
+        ]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 20s
