@@ -3,13 +3,18 @@ package com.eneshasanbese.service;
 import java.time.LocalTime;
 import java.time.format.DateTimeFormatter;
 import java.util.ArrayList;
+import java.util.Collection;
 import java.util.Collections;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+import java.util.Random;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.stream.IntStream;
 
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
 
 import com.eneshasanbese.config.RouteSettings;
@@ -21,49 +26,59 @@ import com.eneshasanbese.entity.ServiceVehicle;
 import com.eneshasanbese.entity.Worker;
 import com.eneshasanbese.enums.Shift;
 import com.eneshasanbese.util.GeoUtils;
+import com.eneshasanbese.util.OrOpt;
+import com.eneshasanbese.util.RoadMatrix;
 
 /**
  * Tek bir servisin güzergâhını kurar.
  *
  * <p>
- * Rota şoförün ev adresinden başlar, atanmış işçileri sırayla toplar ve ofiste
- * biter (sabit garaj yok — seed dosyasındaki senaryo bu). Sıralama önce
- * en-yakın-komşu ile kurulur, ardından 2-opt ile iyileştirilir; iki uç nokta
- * (şoför evi ve ofis) sabit tutulur.
+ * Sabah rota şoförün ev adresinden başlar, atanmış işçileri sırayla toplar ve
+ * ofiste biter; akşam uçlar yer değiştirir (sabit garaj yok — seed dosyasındaki
+ * senaryo bu). Sıralama en-yakın-komşu ile kurulur, ardından 2-opt ve Or-opt
+ * dönüşümlü çalıştırılarak iyileştirilir; iki uç nokta sabit tutulur.
  *
  * <p>
- * <b>Maliyetin kaynağı iki türlü, bilerek:</b>
+ * <b>Mesafe her yerde gerçek yol mesafesidir</b>, kaynağı iki türlü:
  * <ul>
- * <li><i>Gerçek yol matrisi</i> — {@link #build} ve {@link #insertionCost}
- * OSRM'in {@code /table} servisinden servis başına tek istekle N×N yol
- * mesafesi alır. Sıralama ve tek kişilik atama kararı bu matris üzerinden
- * verilir; kuş uçuşu 2 km olan iki nokta yoldan 9 km ise algoritma artık bunu
- * görür.</li>
- * <li><i>Kuş uçuşu × karayolu çarpanı</i> — {@link #estimateMinutes} toplu
- * dağıtımda (yüzlerce işçi × onlarca servis × birkaç tur) binlerce kez
- * çağrıldığı için ağ isteği yapamaz; orada eski ucuz tahmin sürüyor. OSRM
- * ulaşılamadığında bütün yollar zaten buraya düşer.</li>
+ * <li><i>Servis başına matris</i> — {@link #build} OSRM'in {@code /table}
+ * servisinden servis başına tek istekle N×N mesafe alır.
+ * Haritaya çizilen rota da bu sıra üzerinden {@code /route} ile çekilir.</li>
+ * <li><i>Sistem çapında tek matris</i> — {@link #buildRoadMatrix} bütün
+ * noktaları (ofis + şoförler + işçiler) tek istekte çıkarır ve
+ * {@link #estimateLoad} bunun üzerinde çalışır. Toplu dağıtım on binlerce
+ * değerlendirme yaptığı için orada ağ isteği yapılamaz; matris o değerlendirmeyi
+ * dizi okumasına indiriyor.</li>
  * </ul>
+ * OSRM ulaşılamadığında ikisi de kuş uçuşu × karayolu çarpanı tahminine düşer:
+ * uygulama çalışmaya devam eder, yalnızca körleşir.
  *
  * <p>
- * Süre her iki durumda da yol mesafesinin o bölgenin sabah zirvesi ortalama
- * hızına bölünmesiyle bulunur — mesafe OSRM'den, hız İBB verisinden. OSRM'in
- * kendi {@code duration} değeri bilerek kullanılmıyor: o boş yolun süresidir,
- * İstanbul sabahını bilmez.
+ * <b>Süre</b> ise OSRM'in boş yol süresinin, o koridorun İBB verisinden çıkan
+ * tıkanıklık çarpanıyla ölçeklenmesiyle bulunur; ayrıntısı
+ * {@link #legDurationsMinutes} ve README'deki "Süre modeli" başlığında.
  */
 @Service
 public class RouteService {
+
+    private static final Logger log = LoggerFactory.getLogger(RouteService.class);
 
     private static final DateTimeFormatter HHMM = DateTimeFormatter.ofPattern("HH:mm");
     private static final int LOCAL_SEARCH_MAX_PASSES = 50;
     /** 2-opt ile Or-opt turlarının birbirini besleme sayısı. */
     private static final int IMPROVE_MAX_ROUNDS = 10;
-    /** Or-opt'ta taşınabilecek en uzun durak dizisi. */
-    private static final int OR_OPT_MAX_SEGMENT = 3;
     /** Bir hamlenin kabul edilmesi için gereken en az kazanç (dakika). */
     private static final double IMPROVEMENT_EPSILON = 1e-9;
     /** Rota önbelleğinin üst sınırı; aşılınca tamamen boşaltılır. */
     private static final int ROUTE_CACHE_LIMIT = 250;
+    /** Bacak boyunca tıkanıklık çarpanının kaç noktadan örnekleneceği. */
+    private static final int FACTOR_SAMPLES = 9;
+    /** Kalibrasyonda çekilecek örnek zincir sayısı. */
+    private static final int CALIBRATION_CHAINS = 8;
+    /** Her örnek zincirdeki durak sayısı — tipik bir servise yakın. */
+    private static final int CHAIN_LENGTH = 10;
+    /** Sabit tohum: kalibrasyon da dağıtım gibi tekrarlanabilir olmalı. */
+    private static final long CALIBRATION_SEED = 20250101L;
 
     private final TrafficSpeedService trafficSpeedService;
     private final OsrmClient osrmClient;
@@ -106,18 +121,6 @@ public class RouteService {
             String endTime) {
     }
 
-    /**
-     * Bir işçiyi bir servise eklemenin maliyeti. İkisi de <b>aynı</b> yol matrisi
-     * üzerinden hesaplandığı için farkları anlamlıdır.
-     */
-    public record InsertionCost(double withoutCandidate, double withCandidate) {
-
-        /** Adayın servise getirdiği ek süre (dakika). */
-        public double delta() {
-            return withCandidate - withoutCandidate;
-        }
-    }
-
     public RouteResult build(ServiceVehicle vehicle, Driver driver, List<Worker> workers, Shift shift) {
         String key = shift.name() + "|" + cacheKey(vehicle, driver, workers);
 
@@ -137,45 +140,367 @@ public class RouteService {
     }
 
     /**
-     * Toplu dağıtımda kullanılan hafif maliyet: OSRM'siz, 2-opt'suz, yalnızca
-     * en-yakın-komşu turunun kuş uçuşu süresi.
+     * Bir servisin bir seferdeki yükü.
      *
-     * <p>
-     * {@link AssignmentService} bunu yüz binlerce kez çağırabilir; buraya ağ
-     * isteği koymak dağıtımı dakikalar sürecek hale getirirdi.
+     * @param totalMinutes turun tamamı — şoförün evden çıkışından ofise (akşam
+     *                     ofisten evine) varışına kadar
+     * @param maxRideMinutes en uzun süre araçta kalan <b>yolcunun</b> süresi;
+     *                     90 dakika kuralının ölçtüğü şey budur, şoför sayılmaz
      */
-    public double estimateMinutes(Driver driver, List<Worker> workers) {
-        double[][] nodes = nodes(Shift.SABAH, driver, workers);
-        LegCost cost = costFunction(nodes, null, TrafficSpeedService.SLOT_MORNING);
-
-        List<Integer> order = nearestNeighbour(START_NODE, workerNodes(workers.size()), cost);
-        return tourMinutes(order, START_NODE, endNode(nodes), cost);
+    public record LoadEstimate(double totalMinutes, double maxRideMinutes) {
     }
 
     /**
-     * Bir işçiyi bir servise eklemenin gerçek yol maliyeti — {@code /table}'dan
-     * gelen matris üzerinde, hem adaysız hem adaylı en iyi tur kurularak.
+     * Toplu dağıtımda kullanılan hafif yük tahmini: en-yakın-komşu turu, ardından
+     * yalnızca Or-opt ile kısa bir düzeltme.
      *
      * <p>
-     * Aday matrise dahil edildiği için tek istek iki senaryoya da yetiyor. Kişi
-     * turun sonuna eklenmiyor, tur baştan kuruluyor: servis zaten o mahalleden
-     * geçiyorsa {@link InsertionCost#delta()} küçük, sapma gerekiyorsa büyük
-     * çıkar.
+     * <b>Neden {@link #build} değil de bu:</b> {@link AssignmentService} bunu on
+     * binlerce kez çağırıyor. Buraya ağ isteği koymak dağıtımı dakikalar sürecek
+     * hale getirirdi; onun yerine {@code matrix} önceden çıkarılmış tek yol
+     * matrisini taşıyor ve hesap dizi okumasına iniyor. {@code matrix} null ise
+     * (OSRM kapalı) eski kuş uçuşu tahmine düşülür.
+     *
+     * <p>
+     * <b>Neden 2-opt yok:</b> tahminin işi sıralamayı bulmak değil, iki
+     * alternatif <em>yolcu kümesini</em> karşılaştırmak. Or-opt asimetrik
+     * matriste doğru çalışan ucuz hamle; 2-opt hem pahalı hem bu matriste tek
+     * başına yanıltıcı. Yine de düz en-yakın-komşu yetmiyor: kural cezası
+     * {@code maxRideMinutes} üzerinden işlediği için kötü bir tur, olmayan bir
+     * ihlal uydurup atamayı yanlış yönlendirirdi.
      */
-    public InsertionCost insertionCost(Driver driver, List<Worker> current, Worker candidate) {
-        List<Worker> withCandidate = new ArrayList<>(current);
-        withCandidate.add(candidate);
+    public LoadEstimate estimateLoad(Driver driver, List<Worker> workers, RoadMatrix matrix, Shift shift) {
+        if (workers.isEmpty()) {
+            return new LoadEstimate(0, 0);
+        }
 
-        double[][] nodes = nodes(Shift.SABAH, driver, withCandidate);
+        double[][] nodes = nodes(shift, driver, workers);
         int endNode = endNode(nodes);
-        double[][] roadMeters = roadMatrix(nodes);
-        LegCost cost = costFunction(nodes, roadMeters, TrafficSpeedService.SLOT_MORNING);
 
-        // Aday listenin sonunda, yani son işçi düğümü. "Adaysız" senaryo için onu
-        // düğüm listesinden çıkarmak yeterli.
-        return new InsertionCost(
-                bestTourMinutes(workerNodes(current.size()), endNode, cost),
-                bestTourMinutes(workerNodes(withCandidate.size()), endNode, cost));
+        LegCost precomputed = tableCost(matrix, shift, driver, workers);
+        LegCost cost = precomputed != null
+                ? precomputed
+                : costFunction(nodes, sliceOf(matrix, shift, driver, workers), timeSlotOf(shift));
+
+        List<Integer> order = nearestNeighbour(START_NODE, workerNodes(workers.size()), cost);
+        orOpt(order, endNode, cost);
+
+        double total = tourMinutes(order, START_NODE, endNode, cost);
+
+        // Sabah ilk binen, akşam en son inen en uzun yolculuğu yapar; ikisi de
+        // turun tamamından bir uç bacağın çıkarılmasıyla bulunur.
+        double maxRide = shift == Shift.SABAH
+                ? total - cost.minutes(START_NODE, order.getFirst()) - settings.getBoardingMinutes()
+                : total - cost.minutes(order.getLast(), endNode);
+
+        return new LoadEstimate(total, Math.max(0, maxRide));
+    }
+
+    /**
+     * Bütün noktaların birbirine yol mesafesi — tek {@code /table} isteği.
+     *
+     * <p>
+     * Nokta sayısı ofis + şoförler + işçiler kadar (bu veri setinde 114). OSRM'in
+     * {@code --max-table-size} sınırı docker-compose'da 2000; kurumun personeli
+     * birkaç katına çıksa bile tek istek yetmeye devam eder.
+     *
+     * @return matris; OSRM kapalı ya da ulaşılamazsa boş
+     */
+    public Optional<RoadMatrix> buildRoadMatrix(Collection<Driver> drivers, Collection<Worker> workers) {
+        List<double[]> points = new ArrayList<>();
+        points.add(new double[] { settings.getOfficeLat(), settings.getOfficeLon() });
+
+        Map<Long, Integer> driverIndex = new LinkedHashMap<>();
+        for (Driver driver : drivers) {
+            if (driver == null || driverIndex.containsKey(driver.getId())) {
+                continue;
+            }
+            driverIndex.put(driver.getId(), points.size());
+            points.add(new double[] { driver.getLatitude(), driver.getLongitude() });
+        }
+
+        Map<Long, Integer> workerIndex = new LinkedHashMap<>();
+        for (Worker worker : workers) {
+            if (worker == null || workerIndex.containsKey(worker.getId())) {
+                continue;
+            }
+            workerIndex.put(worker.getId(), points.size());
+            points.add(new double[] { worker.getLatitude(), worker.getLongitude() });
+        }
+
+        long started = System.currentTimeMillis();
+        Optional<OsrmClient.Matrix> table = osrmClient.matrix(points);
+
+        if (table.isEmpty()) {
+            log.warn("Yol matrisi alınamadı ({} nokta); dağıtım kuş uçuşu mesafeyle yapılacak.", points.size());
+            return Optional.empty();
+        }
+
+        RoadMatrix matrix = new RoadMatrix(
+                workerIndex, driverIndex, table.get().meters(), table.get().seconds());
+
+        for (Shift shift : Shift.values()) {
+            String timeSlot = timeSlotOf(shift);
+            matrix.putMinutes(timeSlot, minutesTable(points, table.get(), timeSlot));
+        }
+
+        log.info("Yol matrisi hazır: {} nokta, {} ms.", points.size(), System.currentTimeMillis() - started);
+        return Optional.of(matrix);
+    }
+
+    /**
+     * Genel matristen tek bir servisin düğümlerine karşılık gelen küçük matrisi
+     * çıkarır. Düğüm sırası {@link #nodes} ile birebir aynı olmak zorunda.
+     */
+    /**
+     * Önceden hesaplanmış dakika tablosunu okuyan maliyet — atama aramasının
+     * sıcak yolu. Servisin düğümleri genel matristeki numaralarına eşlenir ve
+     * hesap tek dizi okumasına iner.
+     *
+     * @return tablo yoksa ya da noktalardan biri matriste değilse null; çağıran
+     *         taraf o zaman bacakları tek tek hesaplar
+     */
+    private LegCost tableCost(RoadMatrix matrix, Shift shift, Driver driver, List<Worker> workers) {
+        if (matrix == null) {
+            return null;
+        }
+
+        double[][] minutes = matrix.minutes(timeSlotOf(shift));
+        if (minutes == null) {
+            return null;
+        }
+
+        int[] global = globalNodes(matrix, shift, driver, workers);
+        for (int node : global) {
+            if (node == RoadMatrix.UNKNOWN) {
+                return null;
+            }
+        }
+
+        return (from, to) -> minutes[global[from]][global[to]];
+    }
+
+    /**
+     * Servisin düğümlerinin genel matristeki numaraları. Sıra {@link #nodes} ile
+     * birebir aynı olmak zorunda: 0 = kalkış, 1..N = işçiler, N+1 = varış.
+     */
+    private int[] globalNodes(RoadMatrix matrix, Shift shift, Driver driver, List<Worker> workers) {
+        int size = workers.size() + 2;
+        int[] global = new int[size];
+
+        int home = driver == null ? RoadMatrix.OFFICE : matrix.driver(driver.getId());
+        global[START_NODE] = shift == Shift.SABAH ? home : RoadMatrix.OFFICE;
+        global[size - 1] = shift == Shift.SABAH ? RoadMatrix.OFFICE : home;
+
+        for (int i = 0; i < workers.size(); i++) {
+            global[i + 1] = matrix.worker(workers.get(i).getId());
+        }
+
+        return global;
+    }
+
+    private OsrmClient.Matrix sliceOf(RoadMatrix matrix, Shift shift, Driver driver, List<Worker> workers) {
+        if (matrix == null) {
+            return null;
+        }
+
+        int size = workers.size() + 2;
+        int[] global = globalNodes(matrix, shift, driver, workers);
+
+        double[][] meters = new double[size][size];
+        double[][] seconds = new double[size][size];
+
+        for (int from = 0; from < size; from++) {
+            for (int to = 0; to < size; to++) {
+                // Tanınmayan nokta NaN döner; maliyet o bacak için tahmine düşer.
+                meters[from][to] = matrix.meters(global[from], global[to]);
+                seconds[from][to] = matrix.seconds(global[from], global[to]);
+            }
+        }
+
+        return new OsrmClient.Matrix(meters, seconds);
+    }
+
+    /**
+     * Bütün ikililerin sürüş dakikası — matris kurulurken bir kez.
+     *
+     * <p>
+     * Süre modeli rota hesabındakiyle aynı: OSRM'in boş yol süresi × bölgesel
+     * tıkanıklık çarpanı. Fark yalnızca çarpanın nereden örneklendiği. Gerçek
+     * rota çizgisi boyunca örnekliyor, burada henüz çizgi yok; iki nokta
+     * arasındaki doğru üzerinde {@link #FACTOR_SAMPLES} nokta alınıyor.
+     */
+    private double[][] minutesTable(List<double[]> points, OsrmClient.Matrix table, String timeSlot) {
+        int size = points.size();
+        double[][] minutes = new double[size][size];
+        boolean congestionKnown = trafficSpeedService.hasFreeFlowData();
+
+        double[][] seconds = table.seconds();
+        double[][] meters = table.meters();
+        double calibration = congestionKnown ? estimatorCalibration(points, table, timeSlot) : 1.0;
+
+        for (int from = 0; from < size; from++) {
+            double[] start = points.get(from);
+
+            for (int to = 0; to < size; to++) {
+                if (from == to) {
+                    continue;
+                }
+                double[] end = points.get(to);
+
+                double freeFlow = seconds == null ? Double.NaN : seconds[from][to];
+                if (congestionKnown && Double.isFinite(freeFlow) && freeFlow > 0) {
+                    minutes[from][to] = freeFlow / 60.0
+                            * sampledFactorAlongLine(start, end, timeSlot) * calibration;
+                    continue;
+                }
+
+                double km = Double.isFinite(meters[from][to])
+                        ? meters[from][to] / 1000.0
+                        : straightRoadKm(start[0], start[1], end[0], end[1]);
+                minutes[from][to] = legMinutes(start[0], start[1], end[0], end[1], km, timeSlot);
+            }
+        }
+
+        return minutes;
+    }
+
+    /**
+     * Doğru üzerinde örneklenen tıkanıklık çarpanının, <b>gerçek yol</b> üzerinde
+     * örneklenene oranı.
+     *
+     * <p>
+     * <b>Neden gerekiyor.</b> İki ev arasındaki doğru, aracın gerçekte gittiği
+     * yol değil. Araç ana arterden geçiyor, doğru ise ara mahallelerin üstünden
+     * geçiyor. Akşam zirvesinde bu fark büyük: tıkanıklık arterlerde toplanıyor,
+     * mahalle sokakları neredeyse boş. Ölçüldüğünde tahmin, gerçek rotanın akşam
+     * süresini sistematik olarak <b>%12 düşük</b> veriyordu — yani atama, kuralı
+     * çiğnemediğini sanıyordu.
+     *
+     * <p>
+     * <b>Neden elle bir sayı değil.</b> Bu oran şehre, veriye ve zaman dilimine
+     * göre değişir; kafadan bir çarpan koymak modelin geri kalanının dayandığı
+     * "ölçtüğümüzü kullan" ilkesini bozardı. Onun yerine birkaç gerçek rota
+     * çekilip iki örnekleme karşılaştırılıyor ve <b>medyan</b> alınıyor (ortalama
+     * değil: tek bir uç bacak oranı kaydırmasın).
+     *
+     * <p>
+     * Örnek çiftler gerçek bacaklara benzesin diye rastgele değil, birbirine
+     * yakın noktalardan seçiliyor — tur bacakları da kısa. Tohum sabit, yani
+     * kalibrasyon tekrarlanabilir.
+     */
+    private double estimatorCalibration(List<double[]> points, OsrmClient.Matrix table, String timeSlot) {
+        if (table.seconds() == null || points.size() < CHAIN_LENGTH) {
+            return 1.0;
+        }
+
+        List<Double> ratios = new ArrayList<>();
+        Random random = new Random(CALIBRATION_SEED);
+
+        for (int attempt = 0; attempt < CALIBRATION_CHAINS; attempt++) {
+            List<Integer> chain = sampleChain(table.meters(), random);
+            List<double[]> chainPoints = chain.stream().map(points::get).toList();
+
+            Optional<OsrmClient.Route> route = osrmClient.route(chainPoints);
+            if (route.isEmpty() || route.get().legs().size() != chain.size() - 1) {
+                continue;
+            }
+
+            List<double[]> geometry = route.get().geometry();
+            int[] boundaries = geometryBoundaries(chainPoints, geometry);
+
+            double truth = 0;
+            double estimate = 0;
+
+            for (int i = 0; i < chain.size() - 1; i++) {
+                truth += route.get().legs().get(i).durationSeconds() / 60.0
+                        * sampledCongestionFactor(geometry, boundaries[i], boundaries[i + 1], timeSlot);
+
+                estimate += table.seconds()[chain.get(i)][chain.get(i + 1)] / 60.0
+                        * sampledFactorAlongLine(chainPoints.get(i), chainPoints.get(i + 1), timeSlot);
+            }
+
+            if (truth > 0 && estimate > 0) {
+                ratios.add(truth / estimate);
+            }
+        }
+
+        if (ratios.size() * 2 < CALIBRATION_CHAINS) {
+            log.warn("Kalibrasyon için yeterli rota çekilemedi ({} zincir); düzeltme uygulanmıyor.",
+                    ratios.size());
+            return 1.0;
+        }
+
+        Collections.sort(ratios);
+        double median = ratios.get(ratios.size() / 2);
+
+        log.info("Tahmin kalibrasyonu [{}]: {} zincirde medyan oran {}.",
+                timeSlot, ratios.size(), round2(median));
+        return median;
+    }
+
+    /**
+     * Gerçek bir tur bacağına benzeyen nokta zinciri: rastgele bir noktadan
+     * başlayıp her adımda en yakın ziyaret edilmemiş komşuya gidilir. Rastgele
+     * çiftler işe yaramazdı — şehrin iki ucu arasındaki tek uzun bacakta ara
+     * durak kısıtı görünmez, tur bacakları ise kısa ve sık.
+     */
+    private List<Integer> sampleChain(double[][] meters, Random random) {
+        List<Integer> chain = new ArrayList<>();
+        chain.add(random.nextInt(meters.length));
+
+        while (chain.size() < CHAIN_LENGTH) {
+            int current = chain.getLast();
+            int best = -1;
+            double bestMeters = Double.MAX_VALUE;
+
+            for (int next = 0; next < meters.length; next++) {
+                if (chain.contains(next) || !Double.isFinite(meters[current][next])) {
+                    continue;
+                }
+                if (meters[current][next] < bestMeters) {
+                    bestMeters = meters[current][next];
+                    best = next;
+                }
+            }
+
+            if (best < 0) {
+                break;
+            }
+            chain.add(best);
+        }
+
+        return chain;
+    }
+
+    /**
+     * İki nokta arasındaki doğru üzerinde eşit aralıklı örneklenen tıkanıklık
+     * çarpanının ortalaması. Uç noktalar yarım ağırlıkla girer (yamuk kuralı):
+     * yolun büyük kısmı arada geçiyor ve iki ev, genellikle geçtikleri ana
+     * arterden daha sakin hücrelerde.
+     */
+    private double sampledFactorAlongLine(double[] start, double[] end, String timeSlot) {
+        double total = 0;
+        double weightSum = 0;
+
+        for (int i = 0; i < FACTOR_SAMPLES; i++) {
+            double t = (double) i / (FACTOR_SAMPLES - 1);
+            double weight = (i == 0 || i == FACTOR_SAMPLES - 1) ? 0.5 : 1.0;
+
+            total += weight * trafficSpeedService.congestionFactor(
+                    start[0] + (end[0] - start[0]) * t,
+                    start[1] + (end[1] - start[1]) * t,
+                    timeSlot);
+            weightSum += weight;
+        }
+
+        return total / weightSum;
+    }
+
+    static String timeSlotOf(Shift shift) {
+        return shift == Shift.SABAH
+                ? TrafficSpeedService.SLOT_MORNING
+                : TrafficSpeedService.SLOT_EVENING;
     }
 
     public ServiceDto toService(
@@ -211,9 +536,7 @@ public class RouteService {
     // ---------------------------------------------------------------- kurgu
 
     private RouteResult compute(ServiceVehicle vehicle, Driver driver, List<Worker> workers, Shift shift) {
-        String timeSlot = shift == Shift.SABAH
-                ? TrafficSpeedService.SLOT_MORNING
-                : TrafficSpeedService.SLOT_EVENING;
+        String timeSlot = timeSlotOf(shift);
 
         double[][] nodes = nodes(shift, driver, workers);
         int endNode = endNode(nodes);
@@ -221,8 +544,8 @@ public class RouteService {
         // Sıralamanın tamamı bu tek matris üzerinden yapılır. Akşam sırası
         // sabahın tersi olarak türetilmiyor: matris asimetrik ve akşam
         // tıkanıklığı her koridorda aynı oranda artmıyor.
-        double[][] roadMeters = roadMatrix(nodes);
-        LegCost cost = costFunction(nodes, roadMeters, timeSlot);
+        OsrmClient.Matrix roadMatrix = roadMatrix(nodes);
+        LegCost cost = costFunction(nodes, roadMatrix, timeSlot);
 
         List<Integer> order = nearestNeighbour(START_NODE, workerNodes(workers.size()), cost);
         improve(order, endNode, cost);
@@ -241,7 +564,8 @@ public class RouteService {
         Optional<OsrmClient.Route> osrmRoute = osrmClient.route(points);
         List<double[]> geometry = osrmRoute.map(OsrmClient.Route::geometry).orElse(null);
 
-        List<Double> legKm = legDistancesKm(nodes, roadMeters, sequence, osrmRoute);
+        List<Double> legKm = legDistancesKm(
+                nodes, roadMatrix == null ? null : roadMatrix.meters(), sequence, osrmRoute);
         List<Double> legMinutes = legDurationsMinutes(points, geometry, legKm, osrmRoute, timeSlot);
         List<Double> legVariation = legVariations(points, geometry, timeSlot);
 
@@ -682,16 +1006,17 @@ public class RouteService {
         return IntStream.rangeClosed(1, count).boxed().toList();
     }
 
-    private double[][] roadMatrix(double[][] nodes) {
-        return osrmClient.distanceMatrixMeters(List.of(nodes)).orElse(null);
+    private OsrmClient.Matrix roadMatrix(double[][] nodes) {
+        return osrmClient.matrix(List.of(nodes)).orElse(null);
     }
 
     // --------------------------------------------------------------- maliyet
 
-    /** İki düğüm arası dakika. Kaynağı ya OSRM matrisi ya kuş uçuşu tahmindir. */
-    @FunctionalInterface
-    private interface LegCost {
-        double minutes(int from, int to);
+    /**
+     * İki düğüm arası dakika. Kaynağı ya OSRM matrisi ya kuş uçuşu tahmindir.
+     * Arayüz {@link OrOpt} ile ortak: yerel arama da aynı maliyeti okuyor.
+     */
+    private interface LegCost extends OrOpt.LegCost {
     }
 
     /**
@@ -703,9 +1028,13 @@ public class RouteService {
      * En fazla 17 düğüm olduğu için tablo 289 hücre: bir kez doldur, sonrası
      * dizi okuması.
      */
-    private LegCost costFunction(double[][] nodes, double[][] roadMeters, String timeSlot) {
+    private LegCost costFunction(double[][] nodes, OsrmClient.Matrix matrix, String timeSlot) {
         int size = nodes.length;
         double[][] minutes = new double[size][size];
+
+        double[][] roadMeters = matrix == null ? null : matrix.meters();
+        double[][] roadSeconds = matrix == null ? null : matrix.seconds();
+        boolean congestionKnown = trafficSpeedService.hasFreeFlowData();
 
         for (int from = 0; from < size; from++) {
             for (int to = 0; to < size; to++) {
@@ -714,6 +1043,18 @@ public class RouteService {
                 }
                 double[] start = nodes[from];
                 double[] end = nodes[to];
+
+                // Öncelik OSRM'in kendi süresi × bölgesel tıkanıklık. Sıralamanın
+                // ölçtüğü şey ile arayüzde yazan süre böylece aynı modelden
+                // geliyor; ikisi ayrı kaldığında arama, gerçekte ihlal olan bir
+                // dağılımı kurallara uygun sanıyordu.
+                double sampled = roadSeconds == null ? Double.NaN : roadSeconds[from][to];
+                if (congestionKnown && Double.isFinite(sampled) && sampled > 0) {
+                    minutes[from][to] = sampled / 60.0 * trafficSpeedService.legCongestionFactor(
+                            start[0], start[1], end[0], end[1], timeSlot);
+                    continue;
+                }
+
                 minutes[from][to] = legMinutes(start[0], start[1], end[0], end[1],
                         legKm(nodes, roadMeters, from, to), timeSlot);
             }
@@ -770,9 +1111,8 @@ public class RouteService {
      * bulup duruyordu, gerçek optimum 44.64 km'ydi.
      *
      * <p>
-     * Or-opt ise 1-3 duraklık bir parçayı <b>yönünü bozmadan</b> başka bir yere
-     * taşır; asimetrik maliyetle doğru çalışan hamle budur. Aynı serviste
-     * optimali buluyor.
+     * Boşluğu {@link OrOpt} dolduruyor: parçayı yönünü bozmadan taşıdığı için
+     * asimetrik maliyetle doğru çalışıyor ve aynı serviste optimali buluyor.
      */
     private void improve(List<Integer> order, int endNode, LegCost cost) {
         if (order.size() < 3) {
@@ -794,54 +1134,7 @@ public class RouteService {
      * taşır. Her turda mümkün hamlelerin en iyisi uygulanır.
      */
     private boolean orOpt(List<Integer> order, int endNode, LegCost cost) {
-        boolean anyImprovement = false;
-
-        for (int pass = 0; pass < LOCAL_SEARCH_MAX_PASSES; pass++) {
-            List<Integer> better = bestOrOptMove(order, endNode, cost);
-            if (better == null) {
-                return anyImprovement;
-            }
-
-            order.clear();
-            order.addAll(better);
-            anyImprovement = true;
-        }
-
-        return anyImprovement;
-    }
-
-    /** En çok kazandıran tek Or-opt hamlesinin sonucu; kazanç yoksa null. */
-    private List<Integer> bestOrOptMove(List<Integer> order, int endNode, LegCost cost) {
-        double best = tourMinutes(order, START_NODE, endNode, cost);
-        List<Integer> bestOrder = null;
-
-        int maxSegment = Math.min(OR_OPT_MAX_SEGMENT, order.size() - 1);
-
-        for (int length = 1; length <= maxSegment; length++) {
-            for (int from = 0; from + length <= order.size(); from++) {
-                List<Integer> rest = new ArrayList<>(order);
-                List<Integer> segment = new ArrayList<>(rest.subList(from, from + length));
-                rest.subList(from, from + length).clear();
-
-                for (int to = 0; to <= rest.size(); to++) {
-                    if (to == from) {
-                        // Aynı yere geri koymak turu değiştirmez.
-                        continue;
-                    }
-
-                    List<Integer> candidate = new ArrayList<>(rest);
-                    candidate.addAll(to, segment);
-
-                    double value = tourMinutes(candidate, START_NODE, endNode, cost);
-                    if (value < best - IMPROVEMENT_EPSILON) {
-                        best = value;
-                        bestOrder = candidate;
-                    }
-                }
-            }
-        }
-
-        return bestOrder;
+        return OrOpt.improve(order, START_NODE, endNode, cost, LOCAL_SEARCH_MAX_PASSES);
     }
 
     /** Kalkış → sıralı işçiler → ofis turunun toplam dakikası (biniş dahil). */

@@ -160,6 +160,36 @@ public class TrafficSpeedService {
     }
 
     /** İki uç noktanın hücrelerinden bacak hızını türetir. */
+    /**
+     * Bir bacağın tıkanıklık çarpanı — iki uç ve orta noktadan örneklenir.
+     *
+     * <p>
+     * Rota çizildikten sonra {@code RouteService} bu çarpanı çizginin
+     * <em>tamamı</em> boyunca, mesafe ağırlıklı olarak örnekler. Burada henüz
+     * çizilecek bir çizgi yok: sıralama ve atama, hangi bacakların rotaya
+     * gireceği daha belli değilken karar veriyor.
+     *
+     * <p>
+     * Yine de yalnızca iki uca bakmak sistematik olarak <b>düşük</b> tahmin
+     * veriyordu: yolun büyük kısmı iki ucun arasında geçiyor ve iki ev
+     * genellikle geçtikleri ana arterden daha sakin hücrelerde. Orta nokta bu
+     * eğilimi kırıyor; ağırlıklar (¼, ½, ¼) yolun ortasının daha uzun olduğunu
+     * yansıtıyor.
+     */
+    public double legCongestionFactor(
+            double fromLat, double fromLon, double toLat, double toLon, String timeSlot) {
+
+        if (!hasFreeFlowData()) {
+            return 1.0;
+        }
+
+        double from = congestionFactor(fromLat, fromLon, timeSlot);
+        double middle = congestionFactor((fromLat + toLat) / 2, (fromLon + toLon) / 2, timeSlot);
+        double to = congestionFactor(toLat, toLon, timeSlot);
+
+        return (from + 2 * middle + to) / 4;
+    }
+
     public double legSpeedKmh(double fromLat, double fromLon, double toLat, double toLon, String timeSlot) {
         double from = speedKmh(fromLat, fromLon, timeSlot);
         double to = speedKmh(toLat, toLon, timeSlot);

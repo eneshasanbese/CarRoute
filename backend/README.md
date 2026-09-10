@@ -2,6 +2,7 @@
 
 Spring Boot 4.1 · Java 21 · PostgreSQL. Personel servis rota sistemi API'si.
 
+
 ## Çalıştırma
 
 ```bash
@@ -48,10 +49,10 @@ kalkar, atanmış işçileri toplar ve ofiste biter
 (Sancaktepe, `40.9958 / 29.2069`). Kalkış saati ofiste 08:00'de olunacak şekilde
 geriye sayılır.
 
-**Sıralama gerçek yol mesafesiyle yapılır.** Durak sırasına karar veren
-2-opt, "5. kişiyle 9. kişinin yerini değiştirsem ne olur" sorusunu binlerce kez
-sorar; yani henüz denenmemiş bacakların maliyetini bilmesi gerekir. Bu yüzden
-servis başına bir kez OSRM'in `/table` servisinden **N×N yol mesafesi matrisi**
+**Sıralama gerçek yol verisiyle yapılır.** Durak sırasına karar veren arama,
+"5. kişiyle 9. kişinin yerini değiştirsem ne olur" sorusunu binlerce kez sorar;
+yani henüz denenmemiş bacakların maliyetini bilmesi gerekir. Bu yüzden servis
+başına bir kez OSRM'in `/table` servisinden **N×N mesafe ve süre matrisi**
 alınır ve bütün sıralama o matris üzerinden yapılır. Aynı bilgiyi `/route` ile
 toplamak N² ayrı istek ederdi.
 
@@ -75,9 +76,10 @@ Maliyetler düğüm çifti başına bir kez hesaplanıp tabloya alınır (en faz
 yerel arama yüz binlerce kez sorduğu için her seferinde geohash kodlamak
 aramanın kendisinden pahalıya geliyordu.
 
-**Kuş uçuşu tahmin hâlâ duruyor**, iki yerde: toplu dağıtımda (100 işçi × 10
-servis × birkaç tur = yüz binlerce değerlendirme, ağ isteği kaldırmaz) ve OSRM
-ulaşılamadığında her yerde.
+**Toplu dağıtım da gerçek yol mesafesi kullanır**, ama farklı bir matristen:
+servis başına değil, sistem çapında tek `/table` isteğiyle çıkarılan 114×114
+matristen (bkz. "Atama"). Kuş uçuşu tahmin yalnızca OSRM ulaşılamadığında devreye
+giriyor; o zaman uygulama çalışmaya devam eder, sadece körleşir.
 
 **Süre, OSRM'in süresi üzerine tıkanıklık çarpanı uygulanarak bulunur.**
 
@@ -111,9 +113,12 @@ Mesafe yine `/route` bacaklarından geliyor; geometriden yalnızca *hız profili
 çıkarılıyor, böylece raporlanan km ile süre aynı kaynaktan tutarlı kalıyor.
 Geometri yoksa (OSRM kapalı) eski iki uçlu hesaba düşülür.
 
-Bilinen sınır: sıralamayı yapan optimizasyon hâlâ iki uçlu hızı kullanıyor,
-çünkü henüz denenmemiş sıralar için geometri yok. Yani rapor kesin, sıralama
-kararı yaklaşık. Mesafe sıralamada baskın olduğu için bu fark ikincil.
+Bilinen sınır: sıralamayı yapan optimizasyon çizgi boyunca örnekleyemiyor, çünkü
+henüz denenmemiş sıralar için geometri yok; orada tıkanıklık çarpanı bacağın iki
+ucu ve orta noktasından örnekleniyor. Yani rapor kesin, sıralama kararı yaklaşık —
+ama artık ikisi de aynı süre modelini (OSRM süresi × tıkanıklık) kullanıyor.
+Önceden sıralama `km ÷ bölgesel hız` ile ölçüyordu; iki farklı model olduğu için
+arama, arayüzde 125 dakika yazan bir servisi 90 dakika sanabiliyordu.
 
 **Trafik hızı** (`TrafficSpeedService`). Koordinat geohash-6 hücresine çevrilip
 `traffic_speed` tablosunda aranır. İBB veri seti ana arterleri ölçtüğü için her
@@ -121,19 +126,70 @@ konut mahallesinin hücresi tabloda yok; bu yüzden kademeli geri çekilme var:
 geohash-6 → geohash-5 → geohash-4 → o zaman dilimi için şehir ortalaması →
 sabit varsayılan hız. İndeks bellekte tutulur.
 
-**Atama** (`AssignmentService`), üç aşama:
+**Atama** (`AssignmentService`) — kimin hangi servise bineceği.
 
-1. _Kurulum_ — pişmanlık sıralı açgözlü atama: en yakın iki servis arasındaki
+Ölçü birimi **yük**: bir yolcu kümesinin sabah ve akşam turlarının toplam süresi,
+artı 90 dakika kuralını aşan her dakika için ceza. Üç şeyi aynı anda ölçüyor —
+akşamı (aynı kişiler akşam da aynı araçta ve ihlallerin çoğu orada), kuralı, ve
+gerçek yol mesafesini.
+
+_Mesafe neden artık gerçek._ Dağıtım on binlerce kez "bu kişiyi buraya koysam ne
+olur" diye soruyor; her soru için OSRM'e gitmek dakikalar sürerdi, bu yüzden
+eskiden kuş uçuşu mesafeyle çalışıyordu ve Boğaz'ın iki yakasındaki iki evi 2 km
+sanıyordu. Artık başta **tek** bir `/table` isteğiyle bütün noktaların (ofis +
+şoförler + işçiler, bu veri setinde 114) yol mesafesi ve boş yol süresi alınıp
+dakika tablosuna çevriliyor; sonrası dizi okuması.
+
+Dört aşama:
+
+1. _Kurulum_ — pişmanlık sıralı açgözlü atama: en ucuz iki servis arasındaki
    farkı büyük olan işçi önce yerleşir. Gerçek kapasite yerine yumuşak bir tavan
    (ortalama + 2) uygulanır; aksi halde şoförleri aynı ilçede toplanmış
    servislerden biri herkesi topluyor, diğeri boş kalıyor.
 2. _Asgari doluluk onarımı_ — 5 kişinin altında kalan servise, fazlası olan
-   servislerden en uygun yolcu taşınır.
-3. _İyileştirme_ — sınırlı yerel arama: her işçi en yakın 4 alternatif servise
-   taşınmayı dener, iki servisin toplam süresi azalıyorsa taşınır. Kapasite
-   tavanı (15) ve asgari doluluk (5) korunur.
+   servislerden yükü en az artıran yolcu taşınır.
+3. _Taşıma_ — her işçi en ucuz 4 alternatif servise taşınmayı dener; iki servisin
+   toplam yükü azalıyorsa taşınır. Kapasite (15) ve asgari doluluk (5) korunur.
+4. _Takas_ — iki servisten birer kişi yer değiştirir. Taşımanın çözemediği durum
+   bu: karşılıklı yanlış servisteki iki kişide her tek yönlü hamle ya kapasiteyi
+   ya asgari doluluğu bozduğu için reddediliyor ve ikili sonsuza kadar yanlış
+   yerde kalıyordu. Takas kişi sayılarını değiştirmediği için iki kısıt da
+   kendiliğinden korunur.
 
-**Sıralama** (`RouteService`) — en-yakın-komşu ile kurulup 2-opt ile iyileştirilir;
+_Uygunluk ölçüsü._ Eskiden bir kişinin bir servise uygunluğu, evinin **şoförün
+evine** kuş uçuşu uzaklığıydı — ofisin nerede olduğunu hiç hesaba katmıyordu, yani
+tam güzergâh üstünde oturan biri ile aynı uzaklıkta ama ters yönde oturan biri eşit
+görünüyordu. Artık ölçü *sapma*: şoförün evinden ofise giderken o kişiye uğramanın
+maliyeti. Nihai karar ise sapmayla değil, yukarıdaki yükle veriliyor.
+
+_Tek kişilik ekleme de aynı ölçüyü kullanır_ (`assignOne`). Bilerek: iki farklı
+maliyet tanımı olsaydı, tek tek eklenen personelin gittiği servis ile "yeniden
+dağıt" dendiğinde gideceği servis birbirini tutmazdı.
+
+_Dağıtım tekrarlanabilir._ İşçiler id sırasıyla okunuyor. Önceden `findAll()`
+satır sırasını garanti etmediği (Postgres güncellenen satırları fiziksel olarak
+taşır) için aynı veriyle yapılan iki dağıtım farklı sonuç veriyordu.
+
+**Ölçülen etki** (103 kişi, 10 servis, iki sefer = 20 rota). Eski atama, aynı rota
+motoruyla ölçülerek karşılaştırıldı:
+
+| | eski atama | yeni atama |
+|---|---|---|
+| 90 dk kuralını aşan sefer | 10/20 | **6/20** |
+| toplam aşım | 200 dk | **85 dk** |
+| en uzun yolculuk (tepe) | 148 dk | **123 dk** |
+| toplam süre | 1916 dk | 1932 dk (+%0.8) |
+| toplam mesafe | 880 km | 944 km (+%7) |
+
+Kural ile verimlilik gerçekten çatışıyor: kimseyi 90 dakikanın üstünde bırakmamak
+için araçların daha uzun yol gitmesi gerekiyor. Dengeyi
+`carroute.rule.penalty-weight` belirliyor. Ölçülen davranış: 0 → 10 ihlal / 480 dk
+aşım, 2 → 8 / 129, **4 → 6 / 85**, 8 → 10 / 163, 16 → 11 / 168. Yüksek değerler
+geri tepiyor çünkü ceza baskın hale gelince yerel arama kötü bir havzada takılıyor.
+Varsayılan 4 bu ölçümden geliyor.
+
+**Sıralama** (`RouteService`) — en-yakın-komşu ile kurulup 2-opt ve Or-opt ile
+iyileştirilir;
 şoför evi ve ofis sabit uçlardır. Durak sırası veritabanında tutulmaz, her istekte
 yeniden hesaplanır (servis başına en fazla 15 kişi olduğu için milisaniyeler sürer).
 
@@ -239,6 +295,8 @@ carroute.osrm.table-enabled=true
 carroute.osrm.base-url=http://localhost:5000
 carroute.osrm.timeout-ms=8000
 carroute.capacity.min=5
+carroute.rule.max-ride-minutes=90
+carroute.rule.penalty-weight=4.0
 carroute.route.road-factor=1.35
 carroute.route.boarding-minutes=1.0
 carroute.route.fallback-speed=30.0
@@ -317,6 +375,30 @@ kimliği olmadığı için hücrelerin yollara eşlenmesi gerekir — ayrı bir 
 **Kalan 4 — zaman çözünürlüğü ve tazelik.** Sabah zirvesi 06:00–08:00 aralığının
 tek ortalaması, ama tur o iki saati kat ediyor. Veri Ocak 2025 statik dosyası;
 gün, hava, kaza yok.
+
+**Kalan 5 — atamanın gördüğü süre, rotanın gördüğünden biraz kısa.** Atama
+kararlarını `/table` matrisi üzerinden veriyor; matris her nokta çiftini
+*bağımsız bir yolculuk* olarak hesaplıyor, yani araç her durağa istediği yönden
+girip istediği yönden çıkabiliyormuş gibi. Gerçek rota öyle değil: araç durakta
+dönemiyor, bir sonraki bacağa girdiği yönle devam ediyor. Ölçüldü — gerçek bir
+servisin durak sırasında `/route`, aynı bacakların `/table` toplamından **%7.9
+uzun** çıkıyor (bacak bazında 0–%21).
+
+Bu, aracın kapıda U dönüşü yapamaması demek; yani `/route`'un verdiği sayı doğru
+olan. Matris tarafında yapısal olarak görülemiyor, çünkü matrisin bir "geçiş
+yönü" kavramı yok.
+
+Çözüm yerine **ölçüm**: matris kurulurken 8 örnek durak zinciri için gerçek rota
+çekilip, tahminin gerçeğe oranı bulunuyor ve dakika tablosu bu medyan oranla
+ölçekleniyor (`RouteService.estimatorCalibration`). Ocak 2025 verisinde ölçülen
+oran sabah 1.07, akşam 1.10. Düzeltmeden önce atama akşam sürelerini %12 düşük
+görüyordu ve kuralı çiğnemediğini sanıyordu; sonrasında tahmin ile gerçek
+arasındaki ortalama fark ~14 dakikadan ~4 dakikaya indi. Kalan fark tek bir
+medyanın uzun bacaklı servisleri tam yakalayamamasından geliyor — bir serviste
+38 dakikaya çıkabiliyor.
+
+Arayüzde yazan sayı her zaman gerçek rotanınki; kalibrasyon yalnızca atamanın
+karar verirken baktığı tahmini düzeltiyor.
 
 **Doğrulama notu.** Gerçek yolculuk süresi verimiz yok, dolayısıyla model
 gerçeğe karşı doğrulanamıyor — yapılabilen iç tutarlılık ve fiziksel makullük

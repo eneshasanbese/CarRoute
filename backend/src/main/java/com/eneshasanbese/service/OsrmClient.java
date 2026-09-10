@@ -18,8 +18,8 @@ import com.fasterxml.jackson.annotation.JsonIgnoreProperties;
  * ve ikisi farklı soruya cevap veriyor:
  *
  * <ul>
- * <li>{@link #distanceMatrixMeters} — {@code /table}: bir nokta kümesindeki
- * <b>bütün ikililerin</b> yol mesafesi. Durak sırasına karar veren algoritmanın
+ * <li>{@link #matrix} — {@code /table}: bir nokta kümesindeki
+ * <b>bütün ikililerin</b> yol mesafesi ve boş yol süresi. Durak sırasına karar veren algoritmanın
  * ihtiyacı budur: "5. kişiyle 9. kişinin yerini değiştirsem ne olur" sorusu,
  * henüz denenmemiş bacakların maliyetini bilmeyi gerektirir. Aynı bilgiyi
  * {@code /route} ile toplamak N² ayrı istek ederdi; {@code /table} tek istekte
@@ -78,7 +78,24 @@ public class OsrmClient {
     // --------------------------------------------------------------- /table
 
     /**
-     * Nokta kümesindeki bütün ikililerin yol mesafesi (metre).
+     * Bir nokta kümesinin yol mesafeleri ve boş yol süreleri.
+     *
+     * @param meters  N×N mesafe (metre)
+     * @param seconds N×N süre (saniye), <b>trafiksiz</b>; OSRM süreyi döndürmediyse
+     *                null
+     */
+    public record Matrix(double[][] meters, double[][] seconds) {
+    }
+
+    /**
+     * Nokta kümesindeki bütün ikililerin yol mesafesi ve boş yol süresi.
+     *
+     * <p>
+     * <b>Süre neden de isteniyor:</b> bir bacağın gerçek süresi, o bacağın boş
+     * yol süresinin bölgesel tıkanıklık çarpanıyla ölçeklenmesiyle bulunuyor.
+     * Mesafeyi bölgesel ortalama hıza bölmek aynı sonucu vermez — sokakla
+     * çevre yolu aynı hücrede olduğunda mesafe, aracın hangisinden geçtiğini
+     * bilmez; OSRM'in süresi bilir.
      *
      * <p>
      * <b>Matris simetrik değildir</b> — tek yön, bölünmüş yol ve köprü çıkışları
@@ -92,14 +109,14 @@ public class OsrmClient {
      *
      * <p>
      * OSRM'in {@code --max-table-size} sınırı nokta sayısını sınırlar
-     * (docker-compose'da 2000). Bir servis en fazla 15 kişi + şoför + ofis = 17
-     * nokta ürettiği için bu sınıra yaklaşılmıyor.
+     * (docker-compose'da 2000). En büyük çağrı bütün sistemi kapsayan ofis +
+     * şoförler + işçiler matrisi; bu veri setinde 114 nokta.
      *
      * @param points [lat, lon] noktaları (en az 2 tane)
-     * @return metre cinsinden N×N matris; servis kapalı, ulaşılamaz ya da yanıt
-     *         beklenen boyutta değilse boş
+     * @return N×N mesafe ve süre; servis kapalı, ulaşılamaz ya da yanıt beklenen
+     *         boyutta değilse boş
      */
-    public Optional<double[][]> distanceMatrixMeters(List<double[]> points) {
+    public Optional<Matrix> matrix(List<double[]> points) {
         if (!isTableEnabled() || points.size() < 2) {
             return Optional.empty();
         }
@@ -110,35 +127,53 @@ public class OsrmClient {
             OsrmTableResponse response = restClient.get()
                     .uri(uriBuilder -> uriBuilder
                             .path("/table/v1/driving/{coordinates}")
-                            .queryParam("annotations", "distance")
+                            .queryParam("annotations", "distance,duration")
                             .build(coordinates(points)))
                     .retrieve()
                     .body(OsrmTableResponse.class);
 
-            if (response == null || !"Ok".equals(response.code())
-                    || response.distances() == null || response.distances().size() != size) {
+            if (response == null || !"Ok".equals(response.code())) {
                 return Optional.empty();
             }
 
-            double[][] matrix = new double[size][size];
-            for (int row = 0; row < size; row++) {
-                List<Double> values = response.distances().get(row);
-                if (values == null || values.size() != size) {
-                    return Optional.empty();
-                }
-                for (int column = 0; column < size; column++) {
-                    Double value = values.get(column);
-                    matrix[row][column] = value == null ? Double.NaN : value;
-                }
+            double[][] meters = square(response.distances(), size);
+            if (meters == null) {
+                return Optional.empty();
             }
 
             warned = false;
-            return Optional.of(matrix);
+            // Süre olmadan da çalışılır: çağıran taraf mesafeyi bölgesel hıza böler.
+            return Optional.of(new Matrix(meters, square(response.durations(), size)));
 
         } catch (Exception exception) {
             warn("/table", exception);
             return Optional.empty();
         }
+    }
+
+    /**
+     * OSRM'in satır listesini kare diziye çevirir. Beklenen boyutta değilse null;
+     * tek tek ulaşılamayan çiftler {@code null} geldiği için {@link Double#NaN}
+     * olur ve çağıran taraf yalnızca o bacak için tahmine düşer.
+     */
+    private static double[][] square(List<List<Double>> rows, int size) {
+        if (rows == null || rows.size() != size) {
+            return null;
+        }
+
+        double[][] matrix = new double[size][size];
+        for (int row = 0; row < size; row++) {
+            List<Double> values = rows.get(row);
+            if (values == null || values.size() != size) {
+                return null;
+            }
+            for (int column = 0; column < size; column++) {
+                Double value = values.get(column);
+                matrix[row][column] = value == null ? Double.NaN : value;
+            }
+        }
+
+        return matrix;
     }
 
     // --------------------------------------------------------------- /route
@@ -231,7 +266,7 @@ public class OsrmClient {
     // --------------------------------------------------- OSRM yanıt modelleri
 
     @JsonIgnoreProperties(ignoreUnknown = true)
-    private record OsrmTableResponse(String code, List<List<Double>> distances) {
+    private record OsrmTableResponse(String code, List<List<Double>> distances, List<List<Double>> durations) {
     }
 
     @JsonIgnoreProperties(ignoreUnknown = true)

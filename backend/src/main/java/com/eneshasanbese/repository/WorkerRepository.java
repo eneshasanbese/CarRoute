@@ -11,7 +11,16 @@ import com.eneshasanbese.entity.Worker;
 @Repository
 public interface WorkerRepository extends JpaRepository<Worker, Long> {
 
-    List<Worker> findByServiceVehicleIsNull();
+    /**
+     * Atama sırası sonucu etkiliyor: açgözlü kurulum işçileri sırayla
+     * yerleştiriyor ve yerel arama oradan devam ediyor. {@code findAll()} satır
+     * sırasını garanti etmediği için (Postgres güncellenen satırları fiziksel
+     * olarak taşır) aynı veriyle yapılan iki dağıtım farklı sonuç veriyordu.
+     * Aşağıdaki iki sorgu sırayı sabitleyerek dağıtımı tekrarlanabilir kılıyor.
+     */
+    List<Worker> findAllByOrderByIdAsc();
+
+    List<Worker> findByServiceVehicleIsNullOrderByIdAsc();
 
     List<Worker> findByServiceVehicle(ServiceVehicle serviceVehicle);
 

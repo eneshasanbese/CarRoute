@@ -5,3 +5,4 @@ osrm/osrm.env
 
 # OSRM verisi projeye taşınmış hâli: ~380 MB üretilmiş dosya, commit edilmemeli.
 orm-data/
+NASIL-CALISIR.md

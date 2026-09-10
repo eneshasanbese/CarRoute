@@ -51,6 +51,18 @@ public class RouteSettings {
     private int maxRideMinutes;
 
     /**
+     * Kuralı aşan bir dakika, atamada kaç dakikalık yol süresine bedel sayılır.
+     *
+     * <p>
+     * Verimlilik ile kural arasındaki dengeyi bu belirliyor ve ikisi gerçekten
+     * çatışıyor: kimseyi 90 dakikanın üstünde bırakmamak için servislerin daha
+     * uzun yol gitmesi gerekiyor. 0 verilirse atama kuralı hiç görmez ve yalnızca
+     * toplam süreyi küçültür; büyüttükçe ihlal azalır, kilometre artar.
+     */
+    @Value("${carroute.rule.penalty-weight:4.0}")
+    private double rulePenaltyWeight;
+
+    /**
      * Hız oynaklığı bilinmeyen bölgeler için varsayılan varyasyon katsayısı.
      * Ocak 2025 verisinde ölçülen medyan %6.2'ye yakın tutuldu.
      */
