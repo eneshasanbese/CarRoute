@@ -32,6 +32,10 @@ interface RouteMapProps {
   highlightedServiceId?: number | null
   /** Tek rota görünümünde durak numaralarını marker üzerinde göster. */
   showStopNumbers?: boolean
+  /** Durağa tıklanınca çağrılır; verilmezse duraklara tıklamak bir şey yapmaz. */
+  onStopClick?: (servisId: number) => void
+  /** Durak ipucunun altında, tıklamanın ne yapacağını anlatan metin. */
+  stopClickHint?: (servisId: number) => string
   className?: string
 }
 
@@ -46,14 +50,20 @@ export function RouteMap({
   routes,
   highlightedServiceId = null,
   showStopNumbers = true,
+  onStopClick,
+  stopClickHint,
   className,
 }: RouteMapProps) {
+  // Bir servis vurgulandıysa harita onun duraklarına yakınlaşır; vurgu
+  // kalkınca bütün servisleri kapsayan çerçeveye döner.
   const bounds = useMemo(() => {
-    const noktalar = routes.flatMap((r) =>
+    const vurgulu = routes.filter((r) => r.servisId === highlightedServiceId)
+    const kapsam = vurgulu.length > 0 ? vurgulu : routes
+    const noktalar = kapsam.flatMap((r) =>
       r.stops.map((s) => [s.lat, s.lon] as [number, number]),
     )
     return noktalar.length > 0 ? noktalar : null
-  }, [routes])
+  }, [routes, highlightedServiceId])
 
   return (
     <div
@@ -81,6 +91,8 @@ export function RouteMap({
               highlightedServiceId !== route.servisId
             }
             showStopNumbers={showStopNumbers}
+            onStopClick={onStopClick}
+            clickHint={stopClickHint?.(route.servisId)}
           />
         ))}
       </MapContainer>
@@ -92,10 +104,14 @@ function ServiceRouteLayer({
   route,
   dimmed,
   showStopNumbers,
+  onStopClick,
+  clickHint,
 }: {
   route: MapRoute
   dimmed: boolean
   showStopNumbers: boolean
+  onStopClick?: (servisId: number) => void
+  clickHint?: string
 }) {
   const serviceColor = useServiceColor()
   const renk = serviceColor(route.servisId)
@@ -123,6 +139,9 @@ function ServiceRouteLayer({
           icon={stopIcon(stop, renk, dimmed, showStopNumbers)}
           opacity={dimmed ? 0.35 : 1}
           zIndexOffset={dimmed ? 0 : 400}
+          eventHandlers={
+            onStopClick ? { click: () => onStopClick(route.servisId) } : undefined
+          }
         >
           <Tooltip direction="top" offset={[0, -14]}>
             <span className="font-medium">{stop.adSoyad}</span>
@@ -131,6 +150,12 @@ function ServiceRouteLayer({
               {route.ad} · Durak {stop.durakNo} ·{' '}
               {formatKm(stop.oncekiDuraktanKm)}
             </span>
+            {clickHint ? (
+              <>
+                <br />
+                <span className="text-xs text-muted-foreground">{clickHint}</span>
+              </>
+            ) : null}
           </Tooltip>
         </Marker>
       ))}

@@ -1,5 +1,6 @@
 import { EyeIcon, EyeOffIcon } from 'lucide-react'
 import { useCallback } from 'react'
+import { useNavigate } from 'react-router-dom'
 import { ErrorState } from '@/components/common/ErrorState'
 import { RouteMap } from '@/components/map/RouteMap'
 import { SeferToggle } from '@/components/services/SeferToggle'
@@ -33,6 +34,20 @@ export function HaritaGenel() {
     (state) => state.ui,
   )
   const serviceColor = useServiceColor()
+  const navigate = useNavigate()
+
+  /**
+   * İki adımlı gezinme: ilk tıklama o servisi öne çıkarıp haritayı ona
+   * yakınlaştırır, öne çıkmış servisin durağına tıklamak servis detayını açar.
+   * Soluk duran başka bir servisin durağına tıklamak vurguyu ona taşır.
+   */
+  function durakTiklandi(servisId: number) {
+    if (highlightedServiceId === servisId) {
+      navigate(`/servis/${servisId}`)
+    } else {
+      dispatch(setHighlightedService(servisId))
+    }
+  }
 
   const load = useCallback(() => {
     void dispatch(fetchServices())
@@ -84,8 +99,9 @@ export function HaritaGenel() {
         <div>
           <h1 className="text-2xl font-semibold">Genel Harita</h1>
           <p className="text-sm text-muted-foreground">
-            Tüm servis rotaları tek haritada. Legend'den bir servise tıklayarak
-            vurgulayabilir, göz simgesiyle katmanı kapatabilirsin.
+            Tüm servis rotaları tek haritada. Bir durağa tıklayınca o servis öne
+            çıkar, tekrar tıklayınca servis detayı açılır. Göz simgesiyle
+            katmanı kapatabilirsin.
           </p>
         </div>
         <div className="flex items-center gap-2">
@@ -122,6 +138,12 @@ export function HaritaGenel() {
             routes={gorunurRotalar}
             highlightedServiceId={highlightedServiceId}
             showStopNumbers={highlightedServiceId !== null}
+            onStopClick={durakTiklandi}
+            stopClickHint={(servisId) =>
+              highlightedServiceId === servisId
+                ? 'Servis detayı için tıkla'
+                : 'Yalnızca bu servisi göstermek için tıkla'
+            }
           />
         ) : (
           <Skeleton className="h-[640px] w-full rounded-xl" />
