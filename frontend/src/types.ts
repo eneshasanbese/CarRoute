@@ -9,6 +9,8 @@ export interface Employee {
   adSoyad: string
   cinsiyet: Cinsiyet
   yas: number
+  /** Kayıtlı değilse null — mevcut seed satırlarında telefon yok. */
+  telefon: string | null
   adres: string
   ilce: string
   lat: number
@@ -93,6 +95,7 @@ export interface EmployeeInput {
   yas: number
   arabaliMi: boolean
   cocukVarMi: boolean
+  telefon?: string
   ilce?: string
   lat?: number
   lon?: number
@@ -108,9 +111,49 @@ export interface MutationResult {
   route: ServiceRoute
 }
 
+/**
+ * "Yeniden dağıt" sonucu: dağıtımdan sonraki servis listesi ve kaç kişinin
+ * servisinin değiştiği.
+ */
+export interface ReassignResult {
+  toplamPersonel: number
+  servisiDegisen: number
+  servisler: Service[]
+}
+
 export interface GeocodeResult {
   label: string
   ilce: string
   lat: number
   lon: number
+}
+
+/**
+ * Şoför ve sürdüğü servis. Sistemde ikisi ayrılmaz: rotanın başlangıç noktası
+ * şoförün ev adresi olduğu için şoförsüz servis ya da servissiz şoför anlamsız.
+ */
+export interface Driver {
+  id: number
+  adSoyad: string
+  telefon: string | null
+  adres: string
+  ilce: string
+  lat: number
+  lon: number
+  servisId: number | null
+  plaka: string | null
+  model: string | null
+  kapasite: number
+}
+
+/** Şoför ekleme gövdesi. Kaydedildiğinde yeni bir servis de oluşur. */
+export interface DriverInput {
+  adSoyad: string
+  adres: string
+  telefon?: string
+  plaka?: string
+  model?: string
+  ilce?: string
+  lat?: number
+  lon?: number
 }

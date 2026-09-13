@@ -12,7 +12,7 @@ import {
   updateEmployee,
   type RequestStatus,
 } from '@/store/employeesSlice'
-import type { Sefer, Service, ServiceRoute } from '@/types'
+import type { ReassignResult, Sefer, Service, ServiceRoute } from '@/types'
 
 interface ServicesState {
   /** Görüntülenen sefer. Değişince rotalar tazelenir. */
@@ -24,6 +24,8 @@ interface ServicesState {
   routes: Record<number, ServiceRoute>
   routeStatus: Record<number, RequestStatus>
   routeError: Record<number, string | null>
+  /** Yeniden dağıtım sürüyor mu — düğmeyi ve poll'ü kilitler. */
+  reassigning: boolean
 }
 
 const initialState: ServicesState = {
@@ -34,6 +36,7 @@ const initialState: ServicesState = {
   routes: {},
   routeStatus: {},
   routeError: {},
+  reassigning: false,
 }
 
 export const fetchServices = createAsyncThunk<
@@ -56,6 +59,25 @@ export const fetchServiceRoute = createAsyncThunk<
   try {
     const sefer = getState().services.sefer
     return { servisId, route: await servicesApi.route(servisId, sefer) }
+  } catch (error) {
+    return rejectWithValue(apiErrorMessage(error))
+  }
+})
+
+/**
+ * Bütün personeli sıfırdan dağıtır.
+ *
+ * Ekleme/silme akışlarından farklı olarak <b>tek bir servisi</b> değil, tabloyu
+ * bir bütün olarak değiştirir; bu yüzden dönen liste doğrudan store'a yazılıyor
+ * ve rota önbelleği tamamen atılıyor.
+ */
+export const reassignAll = createAsyncThunk<
+  ReassignResult,
+  void,
+  { rejectValue: string; state: { services: ServicesState } }
+>('services/reassign', async (_arg, { getState, rejectWithValue }) => {
+  try {
+    return await servicesApi.reassign(getState().services.sefer)
   } catch (error) {
     return rejectWithValue(apiErrorMessage(error))
   }
@@ -90,6 +112,24 @@ const servicesSlice = createSlice({
       .addCase(fetchServices.rejected, (state, action) => {
         state.status = 'failed'
         state.error = action.payload ?? 'Servisler yüklenemedi.'
+      })
+
+      .addCase(reassignAll.pending, (state) => {
+        state.reassigning = true
+        state.error = null
+      })
+      .addCase(reassignAll.fulfilled, (state, action) => {
+        state.reassigning = false
+        state.status = 'succeeded'
+        state.items = action.payload.servisler
+        // Herkes yer değiştirmiş olabilir; elde tutulan rotaların hiçbiri
+        // artık geçerli değil.
+        state.routes = {}
+        state.routeStatus = {}
+        state.routeError = {}
+      })
+      .addCase(reassignAll.rejected, (state) => {
+        state.reassigning = false
       })
 
       .addCase(fetchServiceRoute.pending, (state, action) => {

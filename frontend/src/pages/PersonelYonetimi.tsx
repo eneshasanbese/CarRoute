@@ -1,7 +1,9 @@
-import { Loader2Icon, PlusIcon } from 'lucide-react'
+import { Loader2Icon, PlusIcon, UserPlusIcon } from "lucide-react"
 import { useCallback, useState } from 'react'
 import { toast } from 'sonner'
-import { ErrorState } from '@/components/common/ErrorState'
+import { ErrorState } from "@/components/common/ErrorState"
+import { DriverFormModal } from "@/components/drivers/DriverFormModal"
+import { EmployeeDetailModal } from "@/components/employees/EmployeeDetailModal"
 import { EmployeeFormModal } from '@/components/employees/EmployeeFormModal'
 import { EmployeeTable } from '@/components/employees/EmployeeTable'
 import {
@@ -33,6 +35,8 @@ export function PersonelYonetimi() {
   const [formAcik, setFormAcik] = useState(false)
   const [duzenlenen, setDuzenlenen] = useState<Employee | null>(null)
   const [silinecek, setSilinecek] = useState<Employee | null>(null)
+  const [soforFormAcik, setSoforFormAcik] = useState(false)
+  const [secilen, setSecilen] = useState<Employee | null>(null)
 
   const load = useCallback(() => {
     void dispatch(fetchEmployees())
@@ -83,10 +87,16 @@ export function PersonelYonetimi() {
             yeniden hesaplanır.
           </p>
         </div>
-        <Button onClick={ekle}>
-          <PlusIcon />
-          Personel Ekle
-        </Button>
+        <div className="flex gap-2">
+          <Button variant="outline" onClick={() => setSoforFormAcik(true)}>
+            <UserPlusIcon />
+            Şoför Ekle
+          </Button>
+          <Button onClick={ekle}>
+            <PlusIcon />
+            Personel Ekle
+          </Button>
+        </div>
       </div>
 
       {status === 'failed' ? (
@@ -103,6 +113,7 @@ export function PersonelYonetimi() {
           servisIdleri={servisIdleri}
           onEdit={duzenle}
           onDelete={setSilinecek}
+          onSelect={setSecilen}
         />
       )}
 
@@ -110,6 +121,13 @@ export function PersonelYonetimi() {
         open={formAcik}
         onOpenChange={setFormAcik}
         employee={duzenlenen}
+      />
+
+      <DriverFormModal open={soforFormAcik} onOpenChange={setSoforFormAcik} />
+
+      <EmployeeDetailModal
+        employee={secilen}
+        onOpenChange={(open) => !open && setSecilen(null)}
       />
 
       <AlertDialog

@@ -69,6 +69,13 @@ public class RouteSettings {
     @Value("${carroute.route.default-variation:0.07}")
     private double defaultVariation;
 
+    /**
+     * Yeni eklenen servis aracının kapasitesi. Mevcut araçların kapasitesi
+     * kendi kaydında tutuluyor; bu yalnızca varsayılan.
+     */
+    @Value("${carroute.capacity.default:15}")
+    private int defaultCapacity;
+
     /** Servis başına en az kişi — altına düşerse yalnızca uyarılır. */
     @Value("${carroute.capacity.min:5}")
     private int minCapacity;

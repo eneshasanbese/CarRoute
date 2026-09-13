@@ -18,7 +18,14 @@ export function ServiceCard({ service }: ServiceCardProps) {
   const renk = serviceColor(service.id)
 
   return (
-    <Card className="relative overflow-hidden transition-shadow hover:shadow-md focus-within:ring-2 focus-within:ring-ring/50">
+    <Card
+      className={cn(
+        'relative overflow-hidden transition-shadow hover:shadow-md focus-within:ring-2 focus-within:ring-ring/50',
+        // Kural ihlali kartın tamamını boyuyor: on servisin arasında sorunlu
+        // olanlar tek bakışta ayrılsın, rozeti okumak gerekmesin.
+        service.kuralIhlali && 'border-destructive/40 bg-destructive/10',
+      )}
+    >
       <span
         aria-hidden
         className="absolute inset-y-0 left-0 w-1"

@@ -22,6 +22,7 @@ import com.eneshasanbese.entity.Worker;
 import com.eneshasanbese.repository.DriverRepository;
 import com.eneshasanbese.repository.ServiceVehicleRepository;
 import com.eneshasanbese.repository.WorkerRepository;
+import com.eneshasanbese.service.AssignmentService.ReassignSummary;
 
 /**
  * Atama katmanının davranış testleri.
@@ -78,6 +79,50 @@ class AssignmentServiceTest {
 
         assertEquals(first, assignmentSnapshot(),
                 "dağıtım tekrarlanabilir olmalı — sunumda iki çalıştırma iki cevap veremez");
+    }
+
+    @Test
+    @DisplayName("Yeniden dağıtım bozuk tabloyu düzeltir")
+    void yenidenDagitimBozukTabloyuDuzeltir() {
+        AssignmentService service = scenario(4.0);
+        List<Worker> north = addNorthCluster(6);
+        List<Worker> east = addEastCluster(6);
+
+        // Herkes ters servise binmiş durumda.
+        north.forEach(w -> w.setServiceVehicle(vehicles.get(1)));
+        east.forEach(w -> w.setServiceVehicle(vehicles.get(0)));
+
+        ReassignSummary summary = service.reassignAll();
+
+        assertEquals(12, summary.total());
+        assertTrue(summary.moved() > 0, "bozuk tablo düzeltilmeliydi");
+        for (Worker worker : workers) {
+            long expected = worker.getLongitude() > OFFICE_LON + 0.01 ? 2L : 1L;
+            assertEquals(expected, worker.getServiceVehicle().getId(),
+                    worker.getName() + " yanlış serviste kaldı");
+        }
+    }
+
+    /**
+     * Sıfırdan kurmak her zaman kazandırmıyor; iyi bir tabloyu bozmamalı.
+     * Ölçüldü: gerçek veride baştan dağıtım 62 kişiyi taşıyıp toplam yolu
+     * uzatmıştı. Bu yüzden yeni tablo yalnızca gerçekten daha iyiyse kabul
+     * ediliyor.
+     */
+    @Test
+    @DisplayName("Yeniden dağıtım iyi tabloyu bozmaz")
+    void yenidenDagitimIyiTabloyuBozmaz() {
+        AssignmentService service = scenario(4.0);
+        addNorthCluster(6);
+        addEastCluster(6);
+
+        service.reassignAll();
+        List<Long> yerlesik = assignmentSnapshot();
+
+        ReassignSummary summary = service.reassignAll();
+
+        assertEquals(0, summary.moved(), "kazandırmayan dağıtım kabul edilmemeliydi");
+        assertEquals(yerlesik, assignmentSnapshot(), "tablo olduğu gibi kalmalıydı");
     }
 
     @Test

@@ -33,14 +33,17 @@ public class EmployeeService {
     private final WorkerRepository workerRepository;
     private final AssignmentService assignmentService;
     private final ServiceCatalogService serviceCatalogService;
+    private final LocationResolver locationResolver;
 
     public EmployeeService(
             WorkerRepository workerRepository,
             AssignmentService assignmentService,
-            ServiceCatalogService serviceCatalogService) {
+            ServiceCatalogService serviceCatalogService,
+            LocationResolver locationResolver) {
         this.workerRepository = workerRepository;
         this.assignmentService = assignmentService;
         this.serviceCatalogService = serviceCatalogService;
+        this.locationResolver = locationResolver;
     }
 
     @Transactional(readOnly = true)
@@ -111,6 +114,7 @@ public class EmployeeService {
                 worker.getName() + " " + worker.getSurname(),
                 worker.getGender() == Gender.KADIN ? "Kadın" : "Erkek",
                 worker.getAge() != null ? worker.getAge() : 0,
+                worker.getPhone(),
                 worker.getAddress(),
                 AddressUtils.extractDistrict(worker.getAddress()),
                 worker.getLatitude(),
@@ -134,44 +138,10 @@ public class EmployeeService {
             worker.setPhone(request.telefon().trim());
         }
 
-        double[] coordinates = resolveCoordinates(request);
+        double[] coordinates = locationResolver.resolve(
+                request.lat(), request.lon(), request.ilce(), request.adres());
         worker.setLatitude(coordinates[0]);
         worker.setLongitude(coordinates[1]);
-    }
-
-    /**
-     * Arayüz adres autocomplete'inden seçim yapıldıysa koordinat gövdede gelir.
-     * Kullanıcı adresi elle yazdıysa, aynı ilçedeki mevcut personelin ağırlık
-     * merkezi kullanılır — harici bir geocoding servisine bağımlılık eklememek
-     * için kasıtlı olarak böyle.
-     */
-    private double[] resolveCoordinates(EmployeeRequest request) {
-        if (request.lat() != null && request.lon() != null
-                && Double.isFinite(request.lat()) && Double.isFinite(request.lon())) {
-            return new double[] { request.lat(), request.lon() };
-        }
-
-        String district = (request.ilce() != null && !request.ilce().isBlank())
-                ? request.ilce().trim()
-                : AddressUtils.extractDistrict(request.adres());
-
-        if (district.isBlank()) {
-            throw new IllegalArgumentException(
-                    "Adresin koordinatı belirlenemedi. Adres listesinden bir sonuç seçin.");
-        }
-
-        List<Worker> sameDistrict = workerRepository.findAll().stream()
-                .filter(w -> district.equalsIgnoreCase(AddressUtils.extractDistrict(w.getAddress())))
-                .toList();
-
-        if (sameDistrict.isEmpty()) {
-            throw new IllegalArgumentException(
-                    "\"" + district + "\" ilçesi için referans konum yok. Adres listesinden bir sonuç seçin.");
-        }
-
-        double lat = sameDistrict.stream().mapToDouble(Worker::getLatitude).average().orElseThrow();
-        double lon = sameDistrict.stream().mapToDouble(Worker::getLongitude).average().orElseThrow();
-        return new double[] { lat, lon };
     }
 
     private static Gender parseGender(String value) {

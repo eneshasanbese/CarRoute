@@ -29,10 +29,12 @@ Uygulama açılışında iki adım çalışır (`@Order` ile sıralı):
 | `POST`   | `/api/employees`                       | Ekler, servise atar, rotayı yeniden hesaplar        |
 | `PUT`    | `/api/employees/{id}`                  | Günceller; adres değiştiyse servisi yeniden seçer   |
 | `DELETE` | `/api/employees/{id}`                  | Siler, ilgili servisin rotasını yeniden hesaplar    |
+| `GET`    | `/api/drivers`                         | Şoförler ve sürdükleri servisler                    |
+| `POST`   | `/api/drivers`                         | Şoför + yeni servis oluşturur, dağıtımı dengeler    |
 | `GET`    | `/api/services?sefer=sabah|aksam`      | 10 servisin doluluk, rota özeti ve kural durumu     |
 | `GET`    | `/api/services/{id}`                   | Tek servisin özeti                                  |
 | `GET`    | `/api/services/{id}/route?sefer=…`     | Sıralı duraklar, varış aralıkları, yolculuk süreleri |
-| `POST`   | `/api/services/reassign`               | Bütün atamaları sıfırlayıp baştan dağıtır           |
+| `POST`   | `/api/services/reassign?sefer=…`       | Bütün atamaları sıfırlayıp baştan dağıtır           |
 | `GET`    | `/api/traffic/snapshot?bucket=sabah`   | `sabah` \| `aksam` yoğunluk özeti                   |
 
 Ekleme/güncelleme/silme yanıtları `{ employee, service, route }` döner: etkilenen
@@ -197,6 +199,20 @@ Asgari 5 kişi kuralı yalnızca **dağıtım** aşamasında hedeflenir. Sonrada
 silinip bir servis 5'in altına düşerse servisler birleştirilmez; arayüz yalnızca
 uyarı rozeti gösterir.
 
+**"Yeniden dağıt" tabloyu bozamaz.** Dashboard'daki düğme (`POST
+/api/services/reassign`) bütün atamaları sıfırlayıp baştan kurar, ama sonucu
+körlemesine kabul etmez: dağıtımdan önceki toplam yük ölçülür, yeni tablo
+gerçekten daha düşük değilse eski atama geri yüklenir ve yanıt "0 kişi taşındı"
+döner.
+
+Bu gereksiz bir emniyet değil, ölçümden çıktı. 104 kişilik gerçek veride baştan
+dağıtım 62 kişiyi taşıyıp bir servisi ihlalden çıkardı, karşılığında toplam yolu
+858.6 → 891.3 km ve toplam süreyi 1857 → 1900 dakika uzattı; atamanın kendi
+ölçüsüyle de daha kötüydü (2002'ye karşı 1931). Sebebi, bugünkü tablonun da aynı
+yerel aramadan geçmiş olması — açgözlü kurulum bazen daha kötü bir havzaya
+düşüyor. Gündelik akışta işleyen, mevcut dağılımı çıpa alan `rebalance`;
+`reassignAll` yalnızca kullanıcı açıkça istediğinde çalışır.
+
 ## Gerçek yol rotası (OSRM)
 
 Duraklar arasını düz çizgiyle birleştirmek yerine gerçek yolu takip etmek için
@@ -295,6 +311,7 @@ carroute.osrm.table-enabled=true
 carroute.osrm.base-url=http://localhost:5000
 carroute.osrm.timeout-ms=8000
 carroute.capacity.min=5
+carroute.capacity.default=15
 carroute.rule.max-ride-minutes=90
 carroute.rule.penalty-weight=4.0
 carroute.route.road-factor=1.35

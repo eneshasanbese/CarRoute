@@ -53,6 +53,8 @@ interface EmployeeTableProps {
   servisIdleri: number[]
   onEdit: (employee: Employee) => void
   onDelete: (employee: Employee) => void
+  /** Satıra tıklanınca detay kartını açar. */
+  onSelect: (employee: Employee) => void
 }
 
 export function EmployeeTable({
@@ -60,6 +62,7 @@ export function EmployeeTable({
   servisIdleri,
   onEdit,
   onDelete,
+  onSelect,
 }: EmployeeTableProps) {
   const [sorting, setSorting] = useState<SortingState>([
     { id: 'adSoyad', desc: false },
@@ -151,6 +154,7 @@ export function EmployeeTable({
             <Link
               to={`/servis/${servisId}`}
               className="inline-flex items-center gap-1.5 hover:underline"
+              onClick={(event) => event.stopPropagation()}
             >
               <span
                 className="size-2.5 rounded-full"
@@ -171,7 +175,11 @@ export function EmployeeTable({
               variant="ghost"
               size="icon"
               aria-label={`${row.original.adSoyad} düzenle`}
-              onClick={() => onEdit(row.original)}
+              onClick={(event) => {
+                // Satır tıklaması detay kartını açıyor; buton onu tetiklemesin.
+                event.stopPropagation()
+                onEdit(row.original)
+              }}
             >
               <PencilIcon />
             </Button>
@@ -180,7 +188,10 @@ export function EmployeeTable({
               size="icon"
               className="text-destructive hover:bg-destructive/10 hover:text-destructive"
               aria-label={`${row.original.adSoyad} sil`}
-              onClick={() => onDelete(row.original)}
+              onClick={(event) => {
+                event.stopPropagation()
+                onDelete(row.original)
+              }}
             >
               <Trash2Icon />
             </Button>
@@ -305,7 +316,20 @@ export function EmployeeTable({
           </TableHeader>
           <TableBody>
             {table.getRowModel().rows.map((row) => (
-              <TableRow key={row.id}>
+              <TableRow
+                key={row.id}
+                tabIndex={0}
+                role="button"
+                aria-label={`${row.original.adSoyad} detayı`}
+                className="cursor-pointer focus-visible:bg-muted/60 focus-visible:outline-none"
+                onClick={() => onSelect(row.original)}
+                onKeyDown={(event) => {
+                  if (event.key === 'Enter' || event.key === ' ') {
+                    event.preventDefault()
+                    onSelect(row.original)
+                  }
+                }}
+              >
                 {row.getVisibleCells().map((cell) => (
                   <TableCell key={cell.id}>
                     {flexRender(cell.column.columnDef.cell, cell.getContext())}

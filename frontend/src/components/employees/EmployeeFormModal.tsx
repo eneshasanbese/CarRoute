@@ -26,36 +26,21 @@ import { Switch } from '@/components/ui/switch'
 import { toast } from 'sonner'
 import { createEmployee, updateEmployee } from '@/store/employeesSlice'
 import { useAppDispatch, useAppSelector } from '@/store/hooks'
+import { sayiAlani, telefonAlani } from '@/lib/validation'
 import type { Employee, EmployeeInput } from '@/types'
 
-/**
- * Sayısal alanlar formda metin olarak tutulup gönderim öncesi sayıya çevriliyor;
- * böylece boş/geçersiz girişte Türkçe hata mesajı verebiliyoruz.
- */
-function sayiAlani(min: number, max: number, label: string) {
-  return z
-    .string()
-    .trim()
-    .min(1, `${label} zorunlu.`)
-    .refine((v) => /^\d+$/.test(v), `${label} sayı olmalı.`)
-    .refine((v) => {
-      const n = Number(v)
-      return n >= min && n <= max
-    }, `${label} ${min}-${max} arasında olmalı.`)
-}
-
-const formSchema = z
-  .object({
-    adSoyad: z.string().trim().min(3, 'Ad soyad en az 3 karakter olmalı.'),
-    adres: z.string().trim().min(5, 'Adres zorunlu.'),
-    cinsiyet: z.enum(['Kadın', 'Erkek']),
-    yas: sayiAlani(18, 70, 'Yaş'),
-    arabaliMi: z.boolean(),
-    cocukVarMi: z.boolean(),
-    ilce: z.string(),
-    lat: z.string(),
-    lon: z.string(),
-  })
+const formSchema = z.object({
+  adSoyad: z.string().trim().min(3, 'Ad soyad en az 3 karakter olmalı.'),
+  adres: z.string().trim().min(5, 'Adres zorunlu.'),
+  cinsiyet: z.enum(['Kadın', 'Erkek']),
+  yas: sayiAlani(18, 70, 'Yaş'),
+  telefon: telefonAlani(),
+  arabaliMi: z.boolean(),
+  cocukVarMi: z.boolean(),
+  ilce: z.string(),
+  lat: z.string(),
+  lon: z.string(),
+})
 
 type FormValues = z.infer<typeof formSchema>
 
@@ -64,6 +49,7 @@ const BOS_FORM: FormValues = {
   adres: '',
   cinsiyet: 'Kadın',
   yas: '',
+  telefon: '',
   arabaliMi: false,
   cocukVarMi: false,
   ilce: '',
@@ -77,6 +63,7 @@ function toFormValues(employee: Employee): FormValues {
     adres: employee.adres,
     cinsiyet: employee.cinsiyet,
     yas: String(employee.yas),
+    telefon: employee.telefon ?? '',
     arabaliMi: employee.arabaliMi,
     cocukVarMi: employee.cocukVarMi,
     ilce: employee.ilce,
@@ -101,6 +88,7 @@ function toEmployeeInput(values: FormValues): EmployeeInput {
     yas: Number(values.yas),
     arabaliMi: values.arabaliMi,
     cocukVarMi: values.cocukVarMi,
+    ...(values.telefon ? { telefon: values.telefon.trim() } : {}),
     ...(values.ilce ? { ilce: values.ilce } : {}),
     ...(koordinatVar ? { lat, lon } : {}),
   }
@@ -231,6 +219,24 @@ export function EmployeeFormModal({
               />
               <FieldError message={formState.errors.yas?.message} />
             </div>
+          </div>
+
+          <div className="space-y-1.5">
+            <Label htmlFor="telefon">
+              Telefon
+              <span className="ml-1 font-normal text-muted-foreground">
+                (opsiyonel)
+              </span>
+            </Label>
+            <Input
+              id="telefon"
+              type="tel"
+              inputMode="tel"
+              placeholder="0532 123 45 67"
+              aria-invalid={Boolean(formState.errors.telefon)}
+              {...register('telefon')}
+            />
+            <FieldError message={formState.errors.telefon?.message} />
           </div>
 
           <div className="space-y-3 rounded-lg border border-border p-3">

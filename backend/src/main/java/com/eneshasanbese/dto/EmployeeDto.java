@@ -6,6 +6,7 @@ public record EmployeeDto(
                 String adSoyad,
                 String cinsiyet,
                 int yas,
+                String telefon,
                 String adres,
                 String ilce,
                 double lat,
