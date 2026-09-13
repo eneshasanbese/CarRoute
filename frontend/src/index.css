@@ -1,111 +1,141 @@
+@import 'tailwindcss';
+
+@custom-variant dark (&:is(.dark *));
+
 :root {
-  --text: #6b6375;
-  --text-h: #08060d;
-  --bg: #fff;
-  --border: #e5e4e7;
-  --code-bg: #f4f3ec;
-  --accent: #aa3bff;
-  --accent-bg: rgba(170, 59, 255, 0.1);
-  --accent-border: rgba(170, 59, 255, 0.5);
-  --social-bg: rgba(244, 243, 236, 0.5);
-  --shadow:
-    rgba(0, 0, 0, 0.1) 0 10px 15px -3px, rgba(0, 0, 0, 0.05) 0 4px 6px -2px;
+  --radius: 0.625rem;
 
-  --sans: system-ui, 'Segoe UI', Roboto, sans-serif;
-  --heading: system-ui, 'Segoe UI', Roboto, sans-serif;
-  --mono: ui-monospace, Consolas, monospace;
+  --background: oklch(0.985 0.002 247);
+  --foreground: oklch(0.21 0.03 264);
+  --card: oklch(1 0 0);
+  --card-foreground: oklch(0.21 0.03 264);
+  --popover: oklch(1 0 0);
+  --popover-foreground: oklch(0.21 0.03 264);
+  --primary: oklch(0.48 0.16 258);
+  --primary-foreground: oklch(0.985 0 0);
+  --secondary: oklch(0.968 0.005 248);
+  --secondary-foreground: oklch(0.28 0.03 264);
+  --muted: oklch(0.968 0.005 248);
+  --muted-foreground: oklch(0.55 0.02 261);
+  --accent: oklch(0.95 0.012 254);
+  --accent-foreground: oklch(0.28 0.03 264);
+  --destructive: oklch(0.58 0.22 27);
+  --destructive-foreground: oklch(0.985 0 0);
+  --border: oklch(0.925 0.006 255);
+  --input: oklch(0.925 0.006 255);
+  --ring: oklch(0.48 0.16 258);
 
-  font: 18px/145% var(--sans);
-  letter-spacing: 0.18px;
-  color-scheme: light dark;
-  color: var(--text);
-  background: var(--bg);
-  font-synthesis: none;
-  text-rendering: optimizeLegibility;
-  -webkit-font-smoothing: antialiased;
-  -moz-osx-font-smoothing: grayscale;
+  /* Kapasite renk kodu — tüm uygulamada tek kaynak */
+  --capacity-ok: oklch(0.62 0.17 148);
+  --capacity-warn: oklch(0.75 0.16 78);
+  --capacity-full: oklch(0.58 0.22 27);
+  --capacity-under: oklch(0.6 0.12 254);
+}
 
-  @media (max-width: 1024px) {
-    font-size: 16px;
+.dark {
+  --background: oklch(0.17 0.02 264);
+  --foreground: oklch(0.97 0.005 250);
+  --card: oklch(0.21 0.025 264);
+  --card-foreground: oklch(0.97 0.005 250);
+  --popover: oklch(0.21 0.025 264);
+  --popover-foreground: oklch(0.97 0.005 250);
+  --primary: oklch(0.68 0.15 255);
+  --primary-foreground: oklch(0.18 0.03 264);
+  --secondary: oklch(0.27 0.025 264);
+  --secondary-foreground: oklch(0.97 0.005 250);
+  --muted: oklch(0.27 0.025 264);
+  --muted-foreground: oklch(0.7 0.015 258);
+  --accent: oklch(0.3 0.03 264);
+  --accent-foreground: oklch(0.97 0.005 250);
+  --destructive: oklch(0.65 0.19 25);
+  --destructive-foreground: oklch(0.97 0.005 250);
+  --border: oklch(1 0 0 / 12%);
+  --input: oklch(1 0 0 / 16%);
+  --ring: oklch(0.6 0.14 256);
+
+  --capacity-ok: oklch(0.7 0.16 149);
+  --capacity-warn: oklch(0.8 0.15 80);
+  --capacity-full: oklch(0.66 0.2 25);
+  --capacity-under: oklch(0.68 0.12 254);
+}
+
+@theme inline {
+  --radius-sm: calc(var(--radius) - 4px);
+  --radius-md: calc(var(--radius) - 2px);
+  --radius-lg: var(--radius);
+  --radius-xl: calc(var(--radius) + 4px);
+
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --color-card: var(--card);
+  --color-card-foreground: var(--card-foreground);
+  --color-popover: var(--popover);
+  --color-popover-foreground: var(--popover-foreground);
+  --color-primary: var(--primary);
+  --color-primary-foreground: var(--primary-foreground);
+  --color-secondary: var(--secondary);
+  --color-secondary-foreground: var(--secondary-foreground);
+  --color-muted: var(--muted);
+  --color-muted-foreground: var(--muted-foreground);
+  --color-accent: var(--accent);
+  --color-accent-foreground: var(--accent-foreground);
+  --color-destructive: var(--destructive);
+  --color-destructive-foreground: var(--destructive-foreground);
+  --color-border: var(--border);
+  --color-input: var(--input);
+  --color-ring: var(--ring);
+
+  --color-capacity-ok: var(--capacity-ok);
+  --color-capacity-warn: var(--capacity-warn);
+  --color-capacity-full: var(--capacity-full);
+  --color-capacity-under: var(--capacity-under);
+}
+
+@layer base {
+  * {
+    border-color: var(--color-border);
+  }
+
+  html,
+  body,
+  #root {
+    height: 100%;
+  }
+
+  body {
+    background-color: var(--color-background);
+    color: var(--color-foreground);
+    font-family:
+      ui-sans-serif, system-ui, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;
+    -webkit-font-smoothing: antialiased;
   }
 }
 
-@media (prefers-color-scheme: dark) {
-  :root {
-    --text: #9ca3af;
-    --text-h: #f3f4f6;
-    --bg: #16171d;
-    --border: #2e303a;
-    --code-bg: #1f2028;
-    --accent: #c084fc;
-    --accent-bg: rgba(192, 132, 252, 0.15);
-    --accent-border: rgba(192, 132, 252, 0.5);
-    --social-bg: rgba(47, 48, 58, 0.5);
-    --shadow:
-      rgba(0, 0, 0, 0.4) 0 10px 15px -3px, rgba(0, 0, 0, 0.25) 0 4px 6px -2px;
-  }
-
-  #social .button-icon {
-    filter: invert(1) brightness(2);
-  }
+/* Leaflet, kendi CSS'ini node_modules'tan alır; harita kabı yükseklik ister. */
+.leaflet-container {
+  height: 100%;
+  width: 100%;
+  background: var(--color-muted);
+  font: inherit;
+  z-index: 0;
 }
 
-#root {
-  width: 1126px;
-  max-width: 100%;
-  margin: 0 auto;
-  text-align: center;
-  border-inline: 1px solid var(--border);
-  min-height: 100svh;
+.leaflet-container a {
+  color: var(--color-primary);
+}
+
+/* Numaralı durak marker'ı (divIcon içeriği) */
+.stop-marker {
   display: flex;
-  flex-direction: column;
-  box-sizing: border-box;
-}
-
-body {
-  margin: 0;
-}
-
-h1,
-h2 {
-  font-family: var(--heading);
-  font-weight: 500;
-  color: var(--text-h);
-}
-
-h1 {
-  font-size: 56px;
-  letter-spacing: -1.68px;
-  margin: 32px 0;
-  @media (max-width: 1024px) {
-    font-size: 36px;
-    margin: 20px 0;
-  }
-}
-h2 {
-  font-size: 24px;
-  line-height: 118%;
-  letter-spacing: -0.24px;
-  margin: 0 0 8px;
-  @media (max-width: 1024px) {
-    font-size: 20px;
-  }
-}
-p {
-  margin: 0;
-}
-
-code,
-.counter {
-  font-family: var(--mono);
-  display: inline-flex;
-  border-radius: 4px;
-  color: var(--text-h);
-}
-
-code {
-  font-size: 15px;
-  line-height: 135%;
-  padding: 4px 8px;
-  background: var(--code-bg);
+  align-items: center;
+  justify-content: center;
+  width: 26px;
+  height: 26px;
+  border-radius: 9999px;
+  border: 2px solid #fff;
+  box-shadow: 0 1px 4px rgb(0 0 0 / 35%);
+  color: #fff;
+  font-size: 11px;
+  font-weight: 700;
+  line-height: 1;
 }

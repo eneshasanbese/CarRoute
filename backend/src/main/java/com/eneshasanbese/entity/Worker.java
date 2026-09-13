@@ -26,6 +26,12 @@ public class Worker {
     private boolean hasCar;
     private boolean hasChild;
 
+    /**
+     * Arayüz yaş gösterdiği için sonradan eklendi. Mevcut seed satırlarında NULL
+     * kalır; DTO'ya çevrilirken 0 yazılır.
+     */
+    private Integer age;
+
     @Enumerated(EnumType.STRING)
     private Gender gender;
 

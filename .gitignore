@@ -1,0 +1,8 @@
+# OSRM verisi: yüzlerce MB, üretilmiş dosyalar. Kurulum için
+# scripts/prepare-osrm.sh çalıştırılır.
+osrm/data/
+osrm/osrm.env
+
+# OSRM verisi projeye taşınmış hâli: ~380 MB üretilmiş dosya, commit edilmemeli.
+orm-data/
+NASIL-CALISIR.md

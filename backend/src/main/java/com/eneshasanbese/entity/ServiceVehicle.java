@@ -18,7 +18,14 @@ public class ServiceVehicle {
     private String model;
     private int capacity;
 
+    /**
+     * Driver.serviceVehicle ile çift yönlü ilişki. Lombok'un ürettiği
+     * equals/hashCode/toString bu döngüde sonsuza kadar dolaşacağı için bu taraf
+     * dışarıda bırakıldı.
+     */
     @OneToOne(mappedBy = "serviceVehicle")
+    @ToString.Exclude
+    @EqualsAndHashCode.Exclude
     private Driver driver;
 
 }
