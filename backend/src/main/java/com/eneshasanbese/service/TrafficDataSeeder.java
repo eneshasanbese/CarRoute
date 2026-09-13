@@ -5,7 +5,6 @@ import com.eneshasanbese.repository.TrafficSpeedRepository;
 import com.eneshasanbese.util.SpeedStats;
 import com.opencsv.CSVReader;
 
-import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.CommandLineRunner;
 import org.springframework.core.annotation.Order;
 import org.springframework.core.io.ClassPathResource;
@@ -13,6 +12,7 @@ import org.springframework.stereotype.Component;
 
 import java.io.InputStreamReader;
 import java.time.LocalDateTime;
+import java.time.LocalTime;
 import java.time.format.DateTimeFormatter;
 import java.util.ArrayList;
 import java.util.HashMap;
@@ -23,11 +23,17 @@ import java.util.Map;
 @Order(1)
 public class TrafficDataSeeder implements CommandLineRunner {
 
-    @Autowired
     private final TrafficSpeedRepository repository;
+    private final TrafficSpeedService trafficSpeedService;
+    private final RouteService routeService;
 
-    public TrafficDataSeeder(TrafficSpeedRepository repository) {
+    public TrafficDataSeeder(
+            TrafficSpeedRepository repository,
+            TrafficSpeedService trafficSpeedService,
+            RouteService routeService) {
         this.repository = repository;
+        this.trafficSpeedService = trafficSpeedService;
+        this.routeService = routeService;
     }
 
     @Override
@@ -57,7 +63,7 @@ public class TrafficDataSeeder implements CommandLineRunner {
         Map<String, Map<String, SpeedStats>> summary = new HashMap<>();
         DateTimeFormatter formatter = DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss");
 
-        ClassPathResource resource = new ClassPathResource("traffic_density_202501.csv");
+        ClassPathResource resource = new ClassPathResource(TrafficDataset.CSV_RESOURCE);
         try (CSVReader reader = new CSVReader(new InputStreamReader(resource.getInputStream()))) {
             reader.readNext(); // header'ı atla
             String[] line;
@@ -90,6 +96,12 @@ public class TrafficDataSeeder implements CommandLineRunner {
 
         saveToDatabase(summary);
         System.out.println("Trafik hız tablosu DB'ye kaydedildi. Toplam geohash: " + summary.size());
+
+        // Spring Boot web sunucusunu runner'lardan önce açıyor. Tablo dolarken
+        // gelen bir istek trafik indeksini boş tabloyla kurup saklamış, o boş
+        // indeksle rota hesaplayıp önbelleğe koymuş olabilir; ikisi de bayat.
+        trafficSpeedService.invalidate();
+        routeService.clearCache();
     }
 
     private void saveToDatabase(Map<String, Map<String, SpeedStats>> summary) {
@@ -127,24 +139,7 @@ public class TrafficDataSeeder implements CommandLineRunner {
      * 01:00–05:00 seçildi: trafik en seyrek, ama ölçüm yapacak kadar araç var.
      */
     private String getTimeSlot(int hour, int minute) {
-        int totalMinutes = hour * 60 + minute;
-
-        int geceBaslangic = 1 * 60; // 01:00
-        int geceBitis = 5 * 60; // 05:00
-        int sabahBaslangic = 6 * 60; // 06:00
-        int sabahBitis = 8 * 60; // 08:00
-        int aksamBaslangic = 17 * 60 + 30; // 17:30
-        int aksamBitis = 19 * 60; // 19:00
-
-        if (totalMinutes >= geceBaslangic && totalMinutes < geceBitis) {
-            return TrafficSpeedService.SLOT_FREE_FLOW;
-        }
-        if (totalMinutes >= sabahBaslangic && totalMinutes < sabahBitis) {
-            return TrafficSpeedService.SLOT_MORNING;
-        }
-        if (totalMinutes >= aksamBaslangic && totalMinutes < aksamBitis) {
-            return TrafficSpeedService.SLOT_EVENING;
-        }
-        return null;
+        // Saat aralıkları TrafficDataset'te; arayüzdeki trafik özeti de oradan okuyor.
+        return TrafficDataset.slotOf(LocalTime.of(hour, minute));
     }
 }

@@ -98,18 +98,21 @@ public class AssignmentService {
     private final ServiceVehicleRepository serviceVehicleRepository;
     private final RouteService routeService;
     private final RouteSettings settings;
+    private final AssignmentLock assignmentLock;
 
     public AssignmentService(
             WorkerRepository workerRepository,
             DriverRepository driverRepository,
             ServiceVehicleRepository serviceVehicleRepository,
             RouteService routeService,
-            RouteSettings settings) {
+            RouteSettings settings,
+            AssignmentLock assignmentLock) {
         this.workerRepository = workerRepository;
         this.driverRepository = driverRepository;
         this.serviceVehicleRepository = serviceVehicleRepository;
         this.routeService = routeService;
         this.settings = settings;
+        this.assignmentLock = assignmentLock;
     }
 
     /** Servis id -> o servisin şoförü. */
@@ -131,6 +134,7 @@ public class AssignmentService {
      */
     @Transactional
     public int assignUnassigned() {
+        assignmentLock.acquire();
         List<Worker> unassigned = workerRepository.findByServiceVehicleIsNullOrderByIdAsc();
         if (unassigned.isEmpty()) {
             return 0;
@@ -157,6 +161,7 @@ public class AssignmentService {
      */
     @Transactional
     public int rebalance() {
+        assignmentLock.acquire();
         distribute(List.of(), false);
         return workerRepository.findAllByOrderByIdAsc().size();
     }
@@ -175,6 +180,7 @@ public class AssignmentService {
      */
     @Transactional
     public ReassignSummary reassignAll() {
+        assignmentLock.acquire();
         List<Worker> workers = workerRepository.findAllByOrderByIdAsc();
         List<ServiceVehicle> vehicles = serviceVehicleRepository.findAllByOrderByIdAsc();
 
@@ -273,11 +279,16 @@ public class AssignmentService {
      * diye yeni yolcu almaz.
      *
      * @return işçinin atandığı servis
-     * @throws IllegalStateException bütün servisler doluysa
+     * @throws IllegalStateException hiç servis yoksa ya da bütün servisler doluysa
      */
     @Transactional
     public ServiceVehicle assignOne(Worker worker) {
+        assignmentLock.acquire();
         List<ServiceVehicle> vehicles = serviceVehicleRepository.findAllByOrderByIdAsc();
+        if (vehicles.isEmpty()) {
+            throw new IllegalStateException(
+                    "Henüz hiç servis yok; personel eklemeden önce bir şoför ve servisini ekleyin.");
+        }
         Map<Long, Driver> drivers = driversByVehicleId();
         Map<Long, List<Worker>> buckets = currentBuckets(vehicles, worker.getId());
 

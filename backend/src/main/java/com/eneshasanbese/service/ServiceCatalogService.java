@@ -76,17 +76,22 @@ public class ServiceCatalogService {
         return routeService.toRoute(result);
     }
 
-    /** Ekleme/güncelleme/silme yanıtı: etkilenen servisin güncel hali + rotası. */
+    /**
+     * Ekleme/güncelleme/silme yanıtı: etkilenen servisin güncel hali + rotası.
+     *
+     * <p>
+     * {@code shift} arayüzde o an açık olan sefer. Sabit sabah dönülürse akşam
+     * görünümündeki kart ve harita, yanıt gelince sabah verisiyle eziliyordu.
+     */
     @Transactional(readOnly = true)
-    public MutationResultDto mutationResult(EmployeeDto employee, Long vehicleId) {
+    public MutationResultDto mutationResult(EmployeeDto employee, Long vehicleId, Shift shift) {
         ServiceVehicle vehicle = requireVehicle(vehicleId);
         List<Worker> workers = workersOf(vehicle);
-        // Değişiklik yanıtı arayüzün varsayılan görünümünü tazeler: sabah seferi.
-        RouteResult result = routeService.build(vehicle, driverOf(vehicleId), workers, Shift.SABAH);
+        RouteResult result = routeService.build(vehicle, driverOf(vehicleId), workers, shift);
 
         return new MutationResultDto(
                 employee,
-                routeService.toService(vehicle, result, workers.size(), Shift.SABAH),
+                routeService.toService(vehicle, result, workers.size(), shift),
                 routeService.toRoute(result));
     }
 

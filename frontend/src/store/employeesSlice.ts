@@ -1,9 +1,15 @@
 import { createAsyncThunk, createSlice } from '@reduxjs/toolkit'
 import { apiErrorMessage } from '@/api/axiosClient'
 import { employeesApi } from '@/api/employeesApi'
-import type { Employee, EmployeeInput, MutationResult } from '@/types'
+import type { Employee, EmployeeInput, MutationResult, Sefer } from '@/types'
 
 export type RequestStatus = 'idle' | 'loading' | 'succeeded' | 'failed'
+
+/**
+ * Değişiklik thunk'larının okuduğu state parçası. Yanıttaki rota ekranda açık
+ * olan sefere ait olsun diye istekle birlikte o sefer gönderiliyor.
+ */
+type SeferState = { services: { sefer: Sefer } }
 
 interface EmployeesState {
   items: Employee[]
@@ -35,10 +41,10 @@ export const fetchEmployees = createAsyncThunk<
 export const createEmployee = createAsyncThunk<
   MutationResult,
   EmployeeInput,
-  { rejectValue: string }
->('employees/create', async (input, { rejectWithValue }) => {
+  { rejectValue: string; state: SeferState }
+>('employees/create', async (input, { getState, rejectWithValue }) => {
   try {
-    return await employeesApi.create(input)
+    return await employeesApi.create(input, getState().services.sefer)
   } catch (error) {
     return rejectWithValue(apiErrorMessage(error))
   }
@@ -47,10 +53,10 @@ export const createEmployee = createAsyncThunk<
 export const updateEmployee = createAsyncThunk<
   MutationResult,
   { id: number; input: EmployeeInput },
-  { rejectValue: string }
->('employees/update', async ({ id, input }, { rejectWithValue }) => {
+  { rejectValue: string; state: SeferState }
+>('employees/update', async ({ id, input }, { getState, rejectWithValue }) => {
   try {
-    return await employeesApi.update(id, input)
+    return await employeesApi.update(id, input, getState().services.sefer)
   } catch (error) {
     return rejectWithValue(apiErrorMessage(error))
   }
@@ -59,10 +65,10 @@ export const updateEmployee = createAsyncThunk<
 export const deleteEmployee = createAsyncThunk<
   MutationResult,
   { id: number; adSoyad: string },
-  { rejectValue: string }
->('employees/delete', async ({ id }, { rejectWithValue }) => {
+  { rejectValue: string; state: SeferState }
+>('employees/delete', async ({ id }, { getState, rejectWithValue }) => {
   try {
-    return await employeesApi.remove(id)
+    return await employeesApi.remove(id, getState().services.sefer)
   } catch (error) {
     return rejectWithValue(apiErrorMessage(error))
   }

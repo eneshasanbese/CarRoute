@@ -3,8 +3,8 @@ import { Link } from 'react-router-dom'
 import { CapacityGauge } from '@/components/services/CapacityGauge'
 import { Badge } from '@/components/ui/badge'
 import { Card } from '@/components/ui/card'
+import { useServiceColor } from '@/hooks/useServiceColor'
 import { CAPACITY_META, capacityLevel } from '@/lib/capacity'
-import { serviceColor } from '@/lib/serviceColors'
 import { servisAdi } from '@/lib/serviceName'
 import { cn, formatKm, formatSure } from '@/lib/utils'
 import type { Service } from '@/types'
@@ -16,6 +16,7 @@ interface ServiceCardProps {
 export function ServiceCard({ service }: ServiceCardProps) {
   const level = capacityLevel(service)
   const meta = CAPACITY_META[level]
+  const serviceColor = useServiceColor()
   const renk = serviceColor(service.id)
 
   return (

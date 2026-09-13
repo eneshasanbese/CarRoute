@@ -51,18 +51,34 @@ export const fetchServices = createAsyncThunk<
   }
 })
 
+/**
+ * Yanıtla birlikte istendiği sefer de dönüyor: duraklar kendi seferini
+ * taşımadığı için reducer, yanıtın hâlâ açık olan sefere ait olup olmadığını
+ * ancak buradan anlayabiliyor.
+ */
 export const fetchServiceRoute = createAsyncThunk<
-  { servisId: number; route: ServiceRoute },
+  { servisId: number; sefer: Sefer; route: ServiceRoute },
   number,
   { rejectValue: string; state: { services: ServicesState } }
 >('services/fetchRoute', async (servisId, { getState, rejectWithValue }) => {
   try {
     const sefer = getState().services.sefer
-    return { servisId, route: await servicesApi.route(servisId, sefer) }
+    return { servisId, sefer, route: await servicesApi.route(servisId, sefer) }
   } catch (error) {
     return rejectWithValue(apiErrorMessage(error))
   }
 })
+
+/**
+ * Servis listesi hâlâ ekranda açık olan sefere mi ait?
+ *
+ * Kullanıcı bir istek yoldayken seferi değiştirirse, eski seferin geç gelen
+ * yanıtı yeni seferin verisinin üstüne yazılıyordu. Her servis kaydı kendi
+ * seferini taşıyor; boş liste iki seferde de aynı olduğu için yazılabilir.
+ */
+function acikSefereAit(services: Service[], sefer: Sefer) {
+  return services.every((service) => service.sefer === sefer)
+}
 
 /**
  * Bütün personeli sıfırdan dağıtır.
@@ -106,6 +122,7 @@ const servicesSlice = createSlice({
         state.error = null
       })
       .addCase(fetchServices.fulfilled, (state, action) => {
+        if (!acikSefereAit(action.payload, state.sefer)) return
         state.status = 'succeeded'
         state.items = action.payload
       })
@@ -120,13 +137,17 @@ const servicesSlice = createSlice({
       })
       .addCase(reassignAll.fulfilled, (state, action) => {
         state.reassigning = false
-        state.status = 'succeeded'
-        state.items = action.payload.servisler
         // Herkes yer değiştirmiş olabilir; elde tutulan rotaların hiçbiri
         // artık geçerli değil.
         state.routes = {}
         state.routeStatus = {}
         state.routeError = {}
+        // Dağıtım sürerken sefer değiştirildiyse liste eski seferin; doğrusunu
+        // poll getirir.
+        if (acikSefereAit(action.payload.servisler, state.sefer)) {
+          state.status = 'succeeded'
+          state.items = action.payload.servisler
+        }
       })
       .addCase(reassignAll.rejected, (state) => {
         state.reassigning = false
@@ -140,7 +161,8 @@ const servicesSlice = createSlice({
         state.routeError[servisId] = null
       })
       .addCase(fetchServiceRoute.fulfilled, (state, action) => {
-        const { servisId, route } = action.payload
+        const { servisId, sefer, route } = action.payload
+        if (sefer !== state.sefer) return
         state.routeStatus[servisId] = 'succeeded'
         state.routes[servisId] = route
       })
@@ -163,6 +185,9 @@ const servicesSlice = createSlice({
         ),
         (state, action) => {
           const { service, route } = action.payload
+          // Servise atanmamış biri silindiyse güncellenecek servis yok. Yanıt
+          // yoldayken sefer değiştirildiyse de yazılmıyor; poll doğrusunu getirir.
+          if (!service || !route || service.sefer !== state.sefer) return
           const index = state.items.findIndex((s) => s.id === service.id)
           if (index === -1) {
             state.items.push(service)

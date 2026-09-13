@@ -13,14 +13,19 @@ import com.eneshasanbese.dto.MutationResultDto;
 import com.eneshasanbese.entity.ServiceVehicle;
 import com.eneshasanbese.entity.Worker;
 import com.eneshasanbese.enums.Gender;
+import com.eneshasanbese.enums.Shift;
 import com.eneshasanbese.repository.WorkerRepository;
 import com.eneshasanbese.util.AddressUtils;
 import com.eneshasanbese.util.GeoUtils;
 
 /**
  * Personel CRUD. Ekleme, güncelleme ve silme işlemleri etkilenen servisin
- * rotasını senkron olarak yeniden hesaplayıp yanıtta döndürür — arayüz React
- * Query cache'ini bu yanıtla günceller.
+ * rotasını senkron olarak yeniden hesaplayıp yanıtta döndürür — arayüz Redux
+ * store'unu bu yanıtla günceller.
+ *
+ * <p>
+ * Üç işlem de dağılımı değiştirdiği için {@link AssignmentLock} ile sıraya
+ * giriyor; kilit her okumadan önce alınıyor.
  */
 @Service
 public class EmployeeService {
@@ -34,16 +39,19 @@ public class EmployeeService {
     private final AssignmentService assignmentService;
     private final ServiceCatalogService serviceCatalogService;
     private final LocationResolver locationResolver;
+    private final AssignmentLock assignmentLock;
 
     public EmployeeService(
             WorkerRepository workerRepository,
             AssignmentService assignmentService,
             ServiceCatalogService serviceCatalogService,
-            LocationResolver locationResolver) {
+            LocationResolver locationResolver,
+            AssignmentLock assignmentLock) {
         this.workerRepository = workerRepository;
         this.assignmentService = assignmentService;
         this.serviceCatalogService = serviceCatalogService;
         this.locationResolver = locationResolver;
+        this.assignmentLock = assignmentLock;
     }
 
     @Transactional(readOnly = true)
@@ -54,21 +62,24 @@ public class EmployeeService {
                 .toList();
     }
 
+    /** @param shift yanıttaki rotanın ait olacağı sefer — arayüzde açık olan */
     @Transactional
-    public MutationResultDto create(EmployeeRequest request) {
+    public MutationResultDto create(EmployeeRequest request, Shift shift) {
         validate(request);
+        assignmentLock.acquire();
 
         Worker worker = new Worker();
         applyRequest(worker, request);
         workerRepository.save(worker);
 
         ServiceVehicle vehicle = assignmentService.assignOne(worker);
-        return serviceCatalogService.mutationResult(toDto(worker), vehicle.getId());
+        return serviceCatalogService.mutationResult(toDto(worker), vehicle.getId(), shift);
     }
 
     @Transactional
-    public MutationResultDto update(Long id, EmployeeRequest request) {
+    public MutationResultDto update(Long id, EmployeeRequest request, Shift shift) {
         validate(request);
+        assignmentLock.acquire();
 
         Worker worker = workerRepository.findById(id)
                 .orElseThrow(() -> new NoSuchElementException("Personel bulunamadı: " + id));
@@ -86,11 +97,22 @@ public class EmployeeService {
                 ? assignmentService.assignOne(worker)
                 : worker.getServiceVehicle();
 
-        return serviceCatalogService.mutationResult(toDto(worker), vehicle.getId());
+        return serviceCatalogService.mutationResult(toDto(worker), vehicle.getId(), shift);
     }
 
+    /**
+     * Personeli siler; bir servise atanmışsa o servisin güncel halini döndürür.
+     *
+     * <p>
+     * Servise atanmamış kişi de silinebilmeli. Önceden burada hata
+     * fırlatılıyordu ve {@code @Transactional} silmeyi geri alıyordu: kişi
+     * silinmiyor, kullanıcı 409 görüyordu. Artık yeniden hesaplanacak rota yoksa
+     * yanıtın servis ve rota alanları boş dönüyor.
+     */
     @Transactional
-    public MutationResultDto delete(Long id) {
+    public MutationResultDto delete(Long id, Shift shift) {
+        assignmentLock.acquire();
+
         Worker worker = workerRepository.findById(id)
                 .orElseThrow(() -> new NoSuchElementException("Personel bulunamadı: " + id));
 
@@ -98,10 +120,9 @@ public class EmployeeService {
         workerRepository.delete(worker);
 
         if (vehicle == null) {
-            throw new IllegalStateException(
-                    "Personel bir servise atanmamıştı; yeniden hesaplanacak rota yok.");
+            return new MutationResultDto(null, null, null);
         }
-        return serviceCatalogService.mutationResult(null, vehicle.getId());
+        return serviceCatalogService.mutationResult(null, vehicle.getId(), shift);
     }
 
     // ------------------------------------------------------------- eşleme

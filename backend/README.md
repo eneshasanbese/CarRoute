@@ -26,9 +26,9 @@ Uygulama açılışında iki adım çalışır (`@Order` ile sıralı):
 | Yöntem   | Yol                                    | Açıklama                                          |
 | -------- | -------------------------------------- | ------------------------------------------------- |
 | `GET`    | `/api/employees`                       | Bütün personel                                     |
-| `POST`   | `/api/employees`                       | Ekler, servise atar, rotayı yeniden hesaplar        |
-| `PUT`    | `/api/employees/{id}`                  | Günceller; adres değiştiyse servisi yeniden seçer   |
-| `DELETE` | `/api/employees/{id}`                  | Siler, ilgili servisin rotasını yeniden hesaplar    |
+| `POST`   | `/api/employees?sefer=…`               | Ekler, servise atar, rotayı yeniden hesaplar        |
+| `PUT`    | `/api/employees/{id}?sefer=…`          | Günceller; adres değiştiyse servisi yeniden seçer   |
+| `DELETE` | `/api/employees/{id}?sefer=…`          | Siler, ilgili servisin rotasını yeniden hesaplar    |
 | `GET`    | `/api/drivers`                         | Şoförler ve sürdükleri servisler                    |
 | `POST`   | `/api/drivers`                         | Şoför + yeni servis oluşturur, dağıtımı dengeler    |
 | `PUT`    | `/api/drivers/{id}`                    | Şoförü ve aracını günceller; adres değiştiyse dengeler |
@@ -37,11 +37,18 @@ Uygulama açılışında iki adım çalışır (`@Order` ile sıralı):
 | `GET`    | `/api/services/{id}`                   | Tek servisin özeti                                  |
 | `GET`    | `/api/services/{id}/route?sefer=…`     | Sıralı duraklar, varış aralıkları, yolculuk süreleri |
 | `POST`   | `/api/services/reassign?sefer=…`       | Bütün atamaları sıfırlayıp baştan dağıtır           |
-| `GET`    | `/api/traffic/snapshot?bucket=sabah`   | `sabah` \| `aksam` yoğunluk özeti                   |
+| `GET`    | `/api/traffic/snapshot?bucket=sabah`   | Zirvenin gece serbest akışına göre yavaşlaması, saat aralığı ve veri kaynağı |
 
 Ekleme/güncelleme/silme yanıtları `{ employee, service, route }` döner: etkilenen
-servisin güncel hali ve yeniden hesaplanmış rotası. Arayüz React Query cache'ini
-doğrudan bu yanıtla günceller.
+servisin güncel hali ve yeniden hesaplanmış rotası. `sefer` (varsayılan `sabah`)
+rotanın hangi sefere ait olacağını belirler; arayüz ekranda açık olan seferi
+gönderir ve Redux store'unu doğrudan bu yanıtla günceller. Servise atanmamış biri
+silindiğinde yeniden hesaplanacak rota olmadığı için `service` ve `route` null
+döner.
+
+Personel ve şoför değişiklikleri, dağılımı okuyup yazdıkları için
+`pg_advisory_xact_lock` ile sıraya girer (`AssignmentLock`); aynı anda gelen iki
+ekleme aynı boş koltuğu kapışamaz.
 
 Hatalar düz JSON: `{ status, error, message }` — 400 (geçersiz gövde/parametre),
 404 (kayıt yok), 409 (kapasite dolu, kısıt ihlali), 500.
@@ -296,9 +303,11 @@ derlemeyle kıyaslamak için kullanışlı.
 
 **Önbellek.** Arayüz 5 saniyede bir bütün servisleri sorguluyor; her poll'da 10
 servis × 2 OSRM isteği anlamsız olurdu. `RouteService` hesaplanmış rotaları
-bellekte tutar. Anahtar girdinin tamamını (servis, şoför konumu, işçilerin id ve
-koordinatları) kapsar; atama ya da adres değişince anahtar da değişir, yani
-bayat sonuç dönmesi mümkün değil.
+bellekte tutar. Anahtar girdinin tamamını (servis, şoförün ve işçilerin adı ve
+konumu, işçilerin id'si) kapsar; atama, adres ya da isim değişince anahtar da
+değişir. Anahtarın göremediği iki durum ayrıca ele alınır: OSRM'e o an
+ulaşılamadıysa kuş uçuşu tahmin önbelleğe alınmaz (sonraki istek yeniden dener),
+trafik tablosu yeniden yüklenince önbellek boşaltılır.
 
 ## Ayarlar
 
@@ -319,7 +328,6 @@ carroute.rule.penalty-weight=4.0
 carroute.route.road-factor=1.35
 carroute.route.boarding-minutes=1.0
 carroute.route.fallback-speed=30.0
-carroute.traffic.free-flow-speed=80.0
 carroute.cors.allowed-origins=http://localhost:5173,http://localhost:5174
 ```
 

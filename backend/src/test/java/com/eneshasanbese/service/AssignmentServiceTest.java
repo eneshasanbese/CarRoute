@@ -209,8 +209,10 @@ class AssignmentServiceTest {
                 new OsrmClient(false, false, "http://localhost:5000", 100),
                 settings);
 
+        // Kilit veritabanı istiyor; testte tek iş parçacığı olduğu için boş taklit yeterli.
         return new AssignmentService(
-                workerRepository(), driverRepository(), vehicleRepository(), routeService, settings);
+                workerRepository(), driverRepository(), vehicleRepository(), routeService, settings,
+                mock(AssignmentLock.class));
     }
 
     private List<Worker> addNorthCluster(int count) {

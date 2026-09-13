@@ -59,6 +59,7 @@ public class DriverService {
     private final AssignmentService assignmentService;
     private final LocationResolver locationResolver;
     private final RouteSettings settings;
+    private final AssignmentLock assignmentLock;
 
     public DriverService(
             DriverRepository driverRepository,
@@ -66,13 +67,15 @@ public class DriverService {
             WorkerRepository workerRepository,
             AssignmentService assignmentService,
             LocationResolver locationResolver,
-            RouteSettings settings) {
+            RouteSettings settings,
+            AssignmentLock assignmentLock) {
         this.driverRepository = driverRepository;
         this.serviceVehicleRepository = serviceVehicleRepository;
         this.workerRepository = workerRepository;
         this.assignmentService = assignmentService;
         this.locationResolver = locationResolver;
         this.settings = settings;
+        this.assignmentLock = assignmentLock;
     }
 
     @Transactional(readOnly = true)
@@ -91,6 +94,8 @@ public class DriverService {
     @Transactional
     public DriverDto create(DriverRequest request) {
         validate(request);
+        // Plaka denetimi ve dengeleme aynı dağılımı okuyor; bkz. AssignmentLock.
+        assignmentLock.acquire();
 
         // Adres çözülemezse araç kaydedilmeden hata dönsün diye önce şoför dolduruluyor.
         Driver driver = new Driver();
@@ -123,6 +128,7 @@ public class DriverService {
     @Transactional
     public DriverDto update(Long id, DriverRequest request) {
         validate(request);
+        assignmentLock.acquire();
 
         Driver driver = requireDriver(id);
         double previousLat = driver.getLatitude();
@@ -159,6 +165,9 @@ public class DriverService {
      */
     @Transactional
     public DriverDeletionDto delete(Long id) {
+        // Kapasite denetimi ile yolcuların dağıtılması arasında başka bir işlem
+        // araya girip denetlenen tabloyu değiştirmesin.
+        assignmentLock.acquire();
         Driver driver = requireDriver(id);
         ServiceVehicle vehicle = driver.getServiceVehicle();
 

@@ -11,11 +11,13 @@ import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.PutMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
+import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 
 import com.eneshasanbese.dto.EmployeeDto;
 import com.eneshasanbese.dto.EmployeeRequest;
 import com.eneshasanbese.dto.MutationResultDto;
+import com.eneshasanbese.enums.Shift;
 import com.eneshasanbese.service.EmployeeService;
 
 @RestController
@@ -33,18 +35,30 @@ public class EmployeeController {
         return employeeService.findAll();
     }
 
+    /**
+     * Değişiklik yanıtları etkilenen servisin rotasını da taşır; {@code sefer}
+     * o rotanın arayüzde açık olan sefere ait olmasını sağlar.
+     */
     @PostMapping
-    public ResponseEntity<MutationResultDto> create(@RequestBody EmployeeRequest request) {
-        return ResponseEntity.status(HttpStatus.CREATED).body(employeeService.create(request));
+    public ResponseEntity<MutationResultDto> create(
+            @RequestBody EmployeeRequest request,
+            @RequestParam(defaultValue = "sabah") String sefer) {
+        return ResponseEntity.status(HttpStatus.CREATED)
+                .body(employeeService.create(request, Shift.of(sefer)));
     }
 
     @PutMapping("/{id}")
-    public MutationResultDto update(@PathVariable Long id, @RequestBody EmployeeRequest request) {
-        return employeeService.update(id, request);
+    public MutationResultDto update(
+            @PathVariable Long id,
+            @RequestBody EmployeeRequest request,
+            @RequestParam(defaultValue = "sabah") String sefer) {
+        return employeeService.update(id, request, Shift.of(sefer));
     }
 
     @DeleteMapping("/{id}")
-    public MutationResultDto delete(@PathVariable Long id) {
-        return employeeService.delete(id);
+    public MutationResultDto delete(
+            @PathVariable Long id,
+            @RequestParam(defaultValue = "sabah") String sefer) {
+        return employeeService.delete(id, Shift.of(sefer));
     }
 }

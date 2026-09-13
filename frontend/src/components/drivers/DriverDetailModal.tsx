@@ -5,7 +5,7 @@ import { Link } from 'react-router-dom'
 import { LocationMiniMap } from '@/components/map/LocationMiniMap'
 import { CapacityGauge } from '@/components/services/CapacityGauge'
 import { Badge } from '@/components/ui/badge'
-import { serviceColor } from '@/lib/serviceColors'
+import { useServiceColor } from '@/hooks/useServiceColor'
 import { servisAdi } from '@/lib/serviceName'
 import type { Driver, Service } from '@/types'
 
@@ -26,6 +26,7 @@ export function DriverDetailModal({
   service,
   onOpenChange,
 }: DriverDetailModalProps) {
+  const serviceColor = useServiceColor()
   const servisId = driver?.servisId ?? null
   const renk = servisId != null ? serviceColor(servisId) : '#64748b'
 

@@ -92,7 +92,9 @@ yalnızca arama, filtre ya da sıralama değişince dönülür.
 - Kapasite: yeşil (rahat) / sarı (12-14) / kırmızı (15, dolu) / mavi rozet
   (5 altı, "Min. kapasite altında"). Tek kaynak:
   [src/lib/capacity.ts](src/lib/capacity.ts).
-- Servis renkleri servis id'sine sabitlenmiştir (10 ayırt edilebilir renk):
+- Servis renkleri o an kayıtlı servislerin id sırasına göre dağıtılır; aynı anda
+  var olan iki servis aynı renge düşmez (10 renklik palet, sonrası koyu tonlar).
+  Bileşenler rengi `useServiceColor()` ile alır:
   [src/lib/serviceColors.ts](src/lib/serviceColors.ts).
 
 ### Servis adı

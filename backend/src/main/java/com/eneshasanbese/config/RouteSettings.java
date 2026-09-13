@@ -95,13 +95,6 @@ public class RouteSettings {
     @Value("${carroute.route.fallback-speed:30.0}")
     private double fallbackSpeedKmh;
 
-    /**
-     * Yoğunluk yüzdesi hesabında referans serbest akış hızı (km/sa):
-     * yogunluk = 100 * (1 - olculenHiz / referans).
-     */
-    @Value("${carroute.traffic.free-flow-speed:80.0}")
-    private double freeFlowSpeedKmh;
-
     public LocalTime arrivalAt() {
         return LocalTime.parse(arrivalTime);
     }

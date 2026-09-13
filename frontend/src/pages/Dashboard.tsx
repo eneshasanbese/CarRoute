@@ -65,7 +65,7 @@ export function Dashboard() {
         <div>
           <h1 className="text-2xl font-semibold">Dashboard</h1>
           <p className="text-sm text-muted-foreground">
-            Servis doluluğu, rota özeti ve güncel trafik durumu.
+            Servis doluluğu, rota özeti ve zirve saat trafik özeti.
           </p>
         </div>
         <div className="flex items-center gap-2">

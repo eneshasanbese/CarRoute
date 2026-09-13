@@ -7,6 +7,7 @@ import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Skeleton } from '@/components/ui/skeleton'
 import { POLL_INTERVAL_MS, usePolling } from '@/hooks/usePolling'
+import { useServiceColor } from '@/hooks/useServiceColor'
 import { useAppDispatch, useAppSelector } from '@/store/hooks'
 import {
   fetchServiceRoute,
@@ -18,7 +19,6 @@ import {
   showAllServices,
   toggleServiceVisibility,
 } from '@/store/uiSlice'
-import { serviceColor } from '@/lib/serviceColors'
 import { servisAdi } from '@/lib/serviceName'
 import { cn, formatKm } from '@/lib/utils'
 
@@ -32,6 +32,7 @@ export function HaritaGenel() {
   const { hiddenServiceIds, highlightedServiceId } = useAppSelector(
     (state) => state.ui,
   )
+  const serviceColor = useServiceColor()
 
   const load = useCallback(() => {
     void dispatch(fetchServices())

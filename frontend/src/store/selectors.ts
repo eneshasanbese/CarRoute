@@ -1,4 +1,5 @@
 import { createSelector } from '@reduxjs/toolkit'
+import { assignServiceColors } from '@/lib/serviceColors'
 import { servisAdi } from '@/lib/serviceName'
 import type { RootState } from '@/store'
 
@@ -13,6 +14,18 @@ export const selectServiceNames = createSelector(
   [selectServices],
   (services): Record<number, string> =>
     Object.fromEntries(services.map((s) => [s.id, servisAdi(s.plaka)])),
+)
+
+/**
+ * Girdi, servis id'lerinin metni: her poll yeni bir dizi getirse de servisler
+ * değişmedikçe metin aynı kalıyor ve renk tablosu yeniden kurulmuyor.
+ */
+const selectServiceIdKey = (state: RootState) =>
+  state.services.items.map((service) => service.id).join(',')
+
+/** Servis id -> renk. Bileşenler bunu `useServiceColor()` üzerinden okur. */
+export const selectServiceColors = createSelector([selectServiceIdKey], (key) =>
+  assignServiceColors(key ? key.split(',').map(Number) : []),
 )
 
 export const selectServiceById = (servisId: number) => (state: RootState) =>

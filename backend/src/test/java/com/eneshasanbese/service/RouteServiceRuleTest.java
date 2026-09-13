@@ -2,6 +2,8 @@ package com.eneshasanbese.service;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertNotSame;
+import static org.junit.jupiter.api.Assertions.assertSame;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import java.time.LocalTime;
@@ -181,6 +183,57 @@ class RouteServiceRuleTest {
         long ilkPencere = pencereDakika(stops.get(1));
         long sonPencere = pencereDakika(stops.get(stops.size() - 1));
         assertTrue(sonPencere >= ilkPencere, "belirsizlik yol aldıkça birikmeli");
+    }
+
+    // ------------------------------------------------------------ önbellek
+
+    @Test
+    @DisplayName("OSRM kapalıyken rota önbelleğe alınır")
+    void kapaliOsrmdaOnbellek() {
+        RouteService service = routeService(90);
+
+        assertSame(
+                service.build(vehicle(), driver(), workers(), Shift.SABAH),
+                service.build(vehicle(), driver(), workers(), Shift.SABAH));
+    }
+
+    @Test
+    @DisplayName("OSRM açık ama ulaşılamıyorsa tahmin önbelleğe alınmaz, sonraki istek yeniden dener")
+    void eksikHesapOnbellegeAlinmaz() {
+        RouteSettings settings = new TestSettings(90);
+        // Hiçbir şeyin dinlemediği port: OSRM ayarlarda açık ama cevap yok.
+        OsrmClient ulasilamayan = new OsrmClient(true, true, "http://127.0.0.1:9", 200);
+        RouteService service = new RouteService(new TestTrafficSpeedService(settings), ulasilamayan, settings);
+
+        RouteResult ilk = service.build(vehicle(), driver(), workers(), Shift.SABAH);
+        RouteResult ikinci = service.build(vehicle(), driver(), workers(), Shift.SABAH);
+
+        assertNotSame(ilk, ikinci, "kuş uçuşu tahmin önbellekten dönmemeli");
+    }
+
+    @Test
+    @DisplayName("Adres değişmeden düzeltilen isim durak listesine yansır")
+    void isimDegisinceEtiketGuncellenir() {
+        RouteService service = routeService(90);
+        List<Worker> workers = workers();
+        service.build(vehicle(), driver(), workers, Shift.SABAH);
+
+        workers.get(0).setName("Yeniad");
+        RouteResult result = service.build(vehicle(), driver(), workers, Shift.SABAH);
+
+        assertTrue(result.stops().stream().anyMatch(stop -> "Yeniad Personel".equals(stop.adSoyad())),
+                "önbellekteki eski isim dönmemeli");
+    }
+
+    @Test
+    @DisplayName("Önbellek temizlenince rota yeniden hesaplanır")
+    void clearCacheSonrasiYenidenHesap() {
+        RouteService service = routeService(90);
+        RouteResult ilk = service.build(vehicle(), driver(), workers(), Shift.SABAH);
+
+        service.clearCache();
+
+        assertNotSame(ilk, service.build(vehicle(), driver(), workers(), Shift.SABAH));
     }
 
     private long pencereDakika(RouteStopDto stop) {

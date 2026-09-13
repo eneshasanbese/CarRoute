@@ -18,6 +18,7 @@ import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Skeleton } from '@/components/ui/skeleton'
 import { POLL_INTERVAL_MS, usePolling } from '@/hooks/usePolling'
+import { useServiceColor } from '@/hooks/useServiceColor'
 import { useAppDispatch, useAppSelector } from '@/store/hooks'
 import {
   selectRoute,
@@ -31,7 +32,6 @@ import {
   setSefer,
 } from '@/store/servicesSlice'
 import { CAPACITY_META, capacityLevel } from '@/lib/capacity'
-import { serviceColor } from '@/lib/serviceColors'
 import { servisAdi } from '@/lib/serviceName'
 import { formatKm, formatSure } from '@/lib/utils'
 
@@ -48,6 +48,7 @@ export function ServisDetay() {
   const routeStatus = useAppSelector(selectRouteStatus(servisId))
   const routeError = useAppSelector(selectRouteError(servisId))
   const sefer = useAppSelector((state) => state.services.sefer)
+  const serviceColor = useServiceColor()
 
   const load = useCallback(() => {
     if (!gecerliId) return

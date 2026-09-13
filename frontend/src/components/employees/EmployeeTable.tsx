@@ -33,7 +33,7 @@ import {
   usePageIndexClamp,
   useStablePagination,
 } from '@/hooks/useStablePagination'
-import { serviceColor } from '@/lib/serviceColors'
+import { useServiceColor } from '@/hooks/useServiceColor'
 import { servisAdiKarsilastir } from '@/lib/serviceName'
 import { metinEsitlik, TUM_DEGERLER } from '@/lib/tableFilters'
 import type { Employee } from '@/types'
@@ -65,6 +65,7 @@ export function EmployeeTable({
   const { pagination, setPagination, resetPageIndex } =
     useStablePagination(SAYFA_BOYUTU)
 
+  const serviceColor = useServiceColor()
   const ilceler = useMemo(
     () => [...new Set(employees.map((e) => e.ilce))].sort((a, b) => a.localeCompare(b, 'tr')),
     [employees],
@@ -200,7 +201,7 @@ export function EmployeeTable({
         ),
       },
     ],
-    [servisAdlari, onEdit, onDelete],
+    [servisAdlari, serviceColor, onEdit, onDelete],
   )
 
   const table = useReactTable({

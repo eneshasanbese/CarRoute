@@ -80,8 +80,12 @@ export interface ServiceRoute {
 
 export interface TrafficSnapshot {
   bucket: TrafficBucket
+  /** Zirvenin gece serbest akışına göre yavaşlaması (0–100). */
   yogunlukYuzde: number
-  guncellemeZamani: string
+  /** Dilimin kapsadığı saatler, ör. "06:00–08:00". */
+  saatAraligi: string
+  /** Verinin kaynağı ve dönemi — veri canlı değil, statik. */
+  kaynak: string
 }
 
 /**
@@ -108,12 +112,14 @@ export interface EmployeeInput {
 
 /**
  * Ekleme/güncelleme/silme sonrası backend'in döndürdüğü senkron sonuç:
- * etkilenen servisin güncel hali + yeniden hesaplanmış rotası.
+ * etkilenen servisin güncel hali + yeniden hesaplanmış rotası. Servise
+ * atanmamış biri silindiğinde yeniden hesaplanacak rota olmadığı için `service`
+ * ve `route` null gelir.
  */
 export interface MutationResult {
   employee: Employee | null
-  service: Service
-  route: ServiceRoute
+  service: Service | null
+  route: ServiceRoute | null
 }
 
 /**

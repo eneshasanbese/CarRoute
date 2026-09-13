@@ -172,6 +172,9 @@ export function DriverFormModal({
               disabled={kaydediliyor}
               onValueChange={(value) => {
                 setValue('adres', value, { shouldValidate: true })
+                // Serbest yazımda eski koordinat da ilçe de geçersiz; ilçe
+                // kalırsa backend şoförü eski ilçenin merkezine yerleştirir.
+                setValue('ilce', '')
                 setValue('lat', '')
                 setValue('lon', '')
               }}

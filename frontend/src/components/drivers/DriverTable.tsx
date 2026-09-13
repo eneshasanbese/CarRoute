@@ -33,7 +33,7 @@ import {
   useStablePagination,
 } from '@/hooks/useStablePagination'
 import { CAPACITY_META, capacityLevel } from '@/lib/capacity'
-import { serviceColor } from '@/lib/serviceColors'
+import { useServiceColor } from '@/hooks/useServiceColor'
 import { servisAdi, servisAdiKarsilastir } from '@/lib/serviceName'
 import { metinEsitlik, TUM_DEGERLER } from '@/lib/tableFilters'
 import { cn } from '@/lib/utils'
@@ -66,6 +66,7 @@ export function DriverTable({
   const { pagination, setPagination, resetPageIndex } =
     useStablePagination(SAYFA_BOYUTU)
 
+  const serviceColor = useServiceColor()
   const ilceler = useMemo(
     () => [...new Set(drivers.map((d) => d.ilce))].sort((a, b) => a.localeCompare(b, 'tr')),
     [drivers],
@@ -204,7 +205,7 @@ export function DriverTable({
         ),
       },
     ],
-    [servisler, onEdit, onDelete],
+    [servisler, serviceColor, onEdit, onDelete],
   )
 
   const table = useReactTable({

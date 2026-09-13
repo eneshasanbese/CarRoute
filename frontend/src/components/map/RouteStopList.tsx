@@ -1,6 +1,6 @@
 import { BuildingIcon, WarehouseIcon } from 'lucide-react'
 import { EmptyState } from '@/components/common/EmptyState'
-import { serviceColor } from '@/lib/serviceColors'
+import { useServiceColor } from '@/hooks/useServiceColor'
 import { cn, formatKm } from '@/lib/utils'
 import type { RouteStop } from '@/types'
 
@@ -27,6 +27,7 @@ function varisAraligi(stop: RouteStop) {
  * manuel taşıma/yeniden sıralama yoktur.
  */
 export function RouteStopList({ stops, className }: RouteStopListProps) {
+  const serviceColor = useServiceColor()
   const personelDuraklari = stops.filter((s) => s.employeeId !== null)
 
   if (personelDuraklari.length === 0) {

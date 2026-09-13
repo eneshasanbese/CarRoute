@@ -87,11 +87,26 @@ public class RouteService {
     /**
      * Hesaplanmış rotalar. Arayüz 5 saniyede bir bütün servisleri sorguluyor;
      * önbellek olmadan her poll 10 servis × (1 {@code /table} + 1 {@code /route})
-     * isteği demek olurdu. Anahtar girdinin tamamını (servis, şoför konumu,
-     * işçilerin id ve koordinatları) kapsadığı için bayat sonuç dönmesi mümkün
-     * değil: atama ya da adres değişince anahtar da değişir.
+     * isteği demek olurdu. Anahtar rota girdisinin tamamını (servis, şoförün ve
+     * işçilerin adı ve konumu, işçilerin id'si) kapsadığı için atama, adres ya da
+     * isim değişince anahtar da değişir.
+     *
+     * <p>
+     * Anahtarın göremediği iki durum ayrıca ele alınıyor: OSRM'e o an
+     * ulaşılamadıysa sonuç hiç saklanmıyor ({@link #build}), trafik tablosu
+     * yeniden yüklenirse önbellek boşaltılıyor ({@link #clearCache}).
      */
     private final Map<String, RouteResult> routeCache = new ConcurrentHashMap<>();
+
+    /** {@link #cacheGeneration} ile önbelleğe yazmayı birlikte korur. */
+    private final Object cacheLock = new Object();
+
+    /**
+     * Önbelleğin kuşağı; {@link #clearCache} her çağrıldığında artar. Temizlikten
+     * önce başlayıp sonra biten bir hesap eski veriyle yapılmıştır ve önbelleğe
+     * yazılmaz — yoksa temizlik o sonucu geri getirirdi.
+     */
+    private long cacheGeneration;
 
     public RouteService(
             TrafficSpeedService trafficSpeedService,
@@ -129,14 +144,38 @@ public class RouteService {
             return cached;
         }
 
-        RouteResult result = compute(vehicle, driver, workers, shift);
+        long generation;
+        synchronized (cacheLock) {
+            generation = cacheGeneration;
+        }
 
-        if (routeCache.size() >= ROUTE_CACHE_LIMIT) {
+        Computation computation = compute(vehicle, driver, workers, shift);
+
+        // Eksik hesap saklanmıyor: OSRM o an cevap vermediyse sonuç kuş uçuşu
+        // tahmin. Saklansaydı OSRM geri geldiğinde bile servis, girdisi
+        // değişene kadar düz çizgi ve kuş uçuşu km ile gösterilirdi. Sonraki
+        // istek yeniden dener.
+        synchronized (cacheLock) {
+            if (computation.complete() && generation == cacheGeneration) {
+                if (routeCache.size() >= ROUTE_CACHE_LIMIT) {
+                    routeCache.clear();
+                }
+                routeCache.put(key, computation.result());
+            }
+        }
+
+        return computation.result();
+    }
+
+    /**
+     * Bütün hesaplanmış rotaları atar. Anahtarın göremediği bir kaynak — trafik
+     * tablosu — değiştiğinde çağrılır.
+     */
+    public void clearCache() {
+        synchronized (cacheLock) {
+            cacheGeneration++;
             routeCache.clear();
         }
-        routeCache.put(key, result);
-
-        return result;
     }
 
     /**
@@ -536,7 +575,15 @@ public class RouteService {
 
     // ---------------------------------------------------------------- kurgu
 
-    private RouteResult compute(ServiceVehicle vehicle, Driver driver, List<Worker> workers, Shift shift) {
+    /**
+     * @param complete OSRM ayarlarda açıkken hem matris hem rota çizgisi geldi mi;
+     *                 gelmediyse sonuç kuş uçuşu tahmine dayanıyor ve önbelleğe
+     *                 alınmamalı
+     */
+    private record Computation(RouteResult result, boolean complete) {
+    }
+
+    private Computation compute(ServiceVehicle vehicle, Driver driver, List<Worker> workers, Shift shift) {
         String timeSlot = timeSlotOf(shift);
 
         double[][] nodes = nodes(shift, driver, workers);
@@ -570,7 +617,13 @@ public class RouteService {
         List<Double> legMinutes = legDurationsMinutes(points, geometry, legKm, osrmRoute, timeSlot);
         List<Double> legVariation = legVariations(points, geometry, timeSlot);
 
-        return assemble(vehicle, driver, ordered, points, legKm, legMinutes, legVariation, geometry, shift);
+        // OSRM kapalıysa tahmin zaten beklenen davranış; açıkken gelmediyse geçici.
+        boolean complete = !(osrmClient.isTableEnabled() && roadMatrix == null)
+                && !(osrmClient.isEnabled() && osrmRoute.isEmpty());
+
+        return new Computation(
+                assemble(vehicle, driver, ordered, points, legKm, legMinutes, legVariation, geometry, shift),
+                complete);
     }
 
     /**
@@ -1222,9 +1275,15 @@ public class RouteService {
     // -------------------------------------------------------------- önbellek
 
     /**
-     * Girdinin tamamını kapsayan anahtar: servis, şoförün konumu ve işçilerin
-     * id + koordinatları. Sorgu sırası değişse de anahtar değişmesin diye
-     * işçi parçaları sıralanıyor.
+     * Girdinin tamamını kapsayan anahtar: servis, şoförün adı ve konumu,
+     * işçilerin id + koordinatları + adı.
+     *
+     * <p>
+     * İsimler de giriyor çünkü durak etiketleri ("Kalkış: şoför adı", yolcu
+     * adları) sonuçla birlikte saklanıyor. Önceden anahtarda yoktu; adres
+     * değişmeden düzeltilen bir isim, durak listesinde ve haritada eski haliyle
+     * kalıyordu. Sorgu sırası değişse de anahtar değişmesin diye işçi parçaları
+     * sıralanıyor.
      */
     private String cacheKey(ServiceVehicle vehicle, Driver driver, List<Worker> workers) {
         StringBuilder key = new StringBuilder()
@@ -1232,12 +1291,14 @@ public class RouteService {
                 .append('|');
 
         if (driver != null) {
-            key.append(driver.getLatitude()).append(',').append(driver.getLongitude());
+            key.append(driver.getName()).append(' ').append(driver.getSurname())
+                    .append('@').append(driver.getLatitude()).append(',').append(driver.getLongitude());
         }
         key.append('|');
 
         workers.stream()
-                .map(worker -> worker.getId() + ":" + worker.getLatitude() + ":" + worker.getLongitude())
+                .map(worker -> worker.getId() + ":" + worker.getLatitude() + ":" + worker.getLongitude()
+                        + ":" + worker.getName() + " " + worker.getSurname())
                 .sorted()
                 .forEach(part -> key.append(part).append(';'));
 

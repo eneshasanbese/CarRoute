@@ -9,7 +9,7 @@ import {
   Tooltip,
   useMap,
 } from 'react-leaflet'
-import { serviceColor } from '@/lib/serviceColors'
+import { useServiceColor } from '@/hooks/useServiceColor'
 import { cn, formatKm } from '@/lib/utils'
 import type { LatLon, RouteStop } from '@/types'
 
@@ -97,6 +97,7 @@ function ServiceRouteLayer({
   dimmed: boolean
   showStopNumbers: boolean
 }) {
+  const serviceColor = useServiceColor()
   const renk = serviceColor(route.servisId)
 
   // OSRM geometrisi varsa yolu takip eder; yoksa duraklar düz çizgiyle bağlanır.

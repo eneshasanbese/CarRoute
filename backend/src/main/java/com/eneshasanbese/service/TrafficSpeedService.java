@@ -1,6 +1,5 @@
 package com.eneshasanbese.service;
 
-import java.time.Instant;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
@@ -197,18 +196,47 @@ public class TrafficSpeedService {
         return average > 1 ? average : settings.getFallbackSpeedKmh();
     }
 
+    /**
+     * Arayüzdeki trafik özeti.
+     *
+     * <p>
+     * Yoğunluk, zirvenin gece serbest akışına göre ne kadar yavaş olduğu. Her
+     * hücre <b>kendi</b> gece hızıyla kıyaslanıp şehir geneli ortalanıyor — süre
+     * modelindeki {@link #congestionFactor} ile aynı referans. Önceden elle
+     * konmuş 80 km/sa'ya göre ölçülüyordu ve o sayı veriden gelmiyordu. Zaman
+     * damgası da {@code Instant.now()} idi; statik Ocak 2025 verisi canlı veri
+     * gibi görünüyordu. Artık kaynak ve saat aralığı açıkça yazılıyor.
+     */
     public TrafficSnapshotDto snapshot(String bucket) {
         String timeSlot = toTimeSlot(bucket);
-        SlotIndex index = indexCache.computeIfAbsent(timeSlot, this::buildIndex);
-
-        double measured = index.cityAverage() > 0 ? index.cityAverage() : settings.getFallbackSpeedKmh();
-        double ratio = measured / settings.getFreeFlowSpeedKmh();
-        int congestion = (int) Math.round(Math.max(0, Math.min(1, 1 - ratio)) * 100);
 
         return new TrafficSnapshotDto(
                 SLOT_MORNING.equals(timeSlot) ? "sabah" : "aksam",
-                congestion,
-                Instant.now().toString());
+                slowdownPercent(timeSlot),
+                TrafficDataset.windowLabel(timeSlot),
+                TrafficDataset.SOURCE_LABEL);
+    }
+
+    /** @return 0–100; serbest akış verisi yoksa 0 */
+    private int slowdownPercent(String timeSlot) {
+        Map<String, Double> peak = indexCache.computeIfAbsent(timeSlot, this::buildIndex).byCell();
+        Map<String, Double> freeFlow = indexCache.computeIfAbsent(SLOT_FREE_FLOW, this::buildIndex).byCell();
+
+        double total = 0;
+        int cells = 0;
+
+        for (Map.Entry<String, Double> cell : peak.entrySet()) {
+            Double night = freeFlow.get(cell.getKey());
+            if (night == null || night <= 0 || cell.getValue() <= 0) {
+                continue;
+            }
+            // Zirvede gece hızından hızlı ölçülen hücre tıkanık değil sayılır,
+            // eksiye düşüp ortalamayı aşağı çekmez.
+            total += Math.max(0, 1 - cell.getValue() / night);
+            cells++;
+        }
+
+        return cells == 0 ? 0 : (int) Math.round(total / cells * 100);
     }
 
     public void invalidate() {

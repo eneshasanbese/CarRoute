@@ -1,31 +1,39 @@
 import { MoonIcon, SunriseIcon } from 'lucide-react'
-import { useCallback } from 'react'
+import { useCallback, useEffect } from 'react'
 import { ErrorState } from '@/components/common/ErrorState'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Skeleton } from '@/components/ui/skeleton'
-import { usePolling } from '@/hooks/usePolling'
 import { useAppDispatch, useAppSelector } from '@/store/hooks'
 import { fetchTrafficSnapshot } from '@/store/trafficSlice'
 import { cn } from '@/lib/utils'
 import type { TrafficBucket } from '@/types'
 
-/** Trafik özeti dakikalık değişir; rota verisi kadar sık çekmeye gerek yok. */
-const TRAFFIC_POLL_MS = 60_000
-
 const BUCKET_META: Record<
   TrafficBucket,
-  { label: string; aralik: string; icon: typeof SunriseIcon }
+  { label: string; icon: typeof SunriseIcon }
 > = {
-  sabah: { label: 'Sabah', aralik: '07:00 – 09:00', icon: SunriseIcon },
-  aksam: { label: 'Akşam', aralik: '17:00 sonrası', icon: MoonIcon },
+  sabah: { label: 'Sabah', icon: SunriseIcon },
+  aksam: { label: 'Akşam', icon: MoonIcon },
 }
 
+/**
+ * Eşikler gerçek veriden: Ocak 2025'te şehir geneli yavaşlama sabah ~%9, akşam
+ * ~%19. Önceki eşikler (%55 / %75) elle konmuş 80 km/sa referansına göreydi; bu
+ * ölçekte çubuk hep yeşil kalırdı.
+ */
 function yogunlukRengi(yuzde: number) {
-  if (yuzde >= 75) return 'bg-capacity-full'
-  if (yuzde >= 55) return 'bg-capacity-warn'
+  if (yuzde >= 20) return 'bg-capacity-full'
+  if (yuzde >= 10) return 'bg-capacity-warn'
   return 'bg-capacity-ok'
 }
 
+/**
+ * Zirve saatlerin trafik özeti.
+ *
+ * Saat aralıkları ve kaynak backend'den geliyor: önceden burada elle yazılıydı
+ * ("07:00 – 09:00") ve veriyle uyuşmuyordu. Veri statik (Ocak 2025) olduğu için
+ * "son güncelleme" gösterilmiyor ve periyodik tazeleme yapılmıyor.
+ */
 export function TrafficPanel({ className }: { className?: string }) {
   const dispatch = useAppDispatch()
   const snapshots = useAppSelector((state) => state.traffic.snapshots)
@@ -37,19 +45,19 @@ export function TrafficPanel({ className }: { className?: string }) {
     void dispatch(fetchTrafficSnapshot('aksam'))
   }, [dispatch])
 
-  usePolling(load, TRAFFIC_POLL_MS)
+  useEffect(() => {
+    load()
+  }, [load])
 
-  const guncelleme = guncellemeMetni(snapshots.sabah?.guncellemeZamani)
+  const kaynak = snapshots.sabah?.kaynak ?? snapshots.aksam?.kaynak
 
   return (
     <Card className={className}>
       <CardHeader className="pb-2">
         <CardTitle className="text-sm">Trafik Durumu</CardTitle>
-        {guncelleme ? (
-          <p className="text-xs text-muted-foreground">
-            Son güncelleme {guncelleme}
-          </p>
-        ) : null}
+        <p className="text-xs text-muted-foreground">
+          Zirve saatlerde gece serbest akışına göre yavaşlama
+        </p>
       </CardHeader>
       <CardContent className="space-y-4">
         {status === 'failed' ? (
@@ -65,9 +73,13 @@ export function TrafficPanel({ className }: { className?: string }) {
               key={bucket}
               bucket={bucket}
               yuzde={snapshots[bucket]?.yogunlukYuzde}
+              saatAraligi={snapshots[bucket]?.saatAraligi}
             />
           ))
         )}
+        {kaynak ? (
+          <p className="text-xs text-muted-foreground">Kaynak: {kaynak}</p>
+        ) : null}
       </CardContent>
     </Card>
   )
@@ -76,9 +88,11 @@ export function TrafficPanel({ className }: { className?: string }) {
 function BucketRow({
   bucket,
   yuzde,
+  saatAraligi,
 }: {
   bucket: TrafficBucket
   yuzde?: number
+  saatAraligi?: string
 }) {
   const meta = BUCKET_META[bucket]
   const Icon = meta.icon
@@ -89,7 +103,9 @@ function BucketRow({
         <span className="flex items-center gap-1.5">
           <Icon className="size-4 text-muted-foreground" />
           <span className="font-medium">{meta.label}</span>
-          <span className="text-xs text-muted-foreground">{meta.aralik}</span>
+          {saatAraligi ? (
+            <span className="text-xs text-muted-foreground">{saatAraligi}</span>
+          ) : null}
         </span>
         {yuzde == null ? (
           <Skeleton className="h-4 w-10" />
@@ -110,14 +126,4 @@ function BucketRow({
       </div>
     </div>
   )
-}
-
-function guncellemeMetni(isoDate?: string) {
-  if (!isoDate) return null
-  const tarih = new Date(isoDate)
-  if (Number.isNaN(tarih.getTime())) return null
-  return tarih.toLocaleTimeString('tr-TR', {
-    hour: '2-digit',
-    minute: '2-digit',
-  })
 }

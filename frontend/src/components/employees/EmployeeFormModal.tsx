@@ -134,7 +134,11 @@ export function EmployeeFormModal({
 
       toast.success(
         `${input.adSoyad} ${employee ? 'güncellendi' : 'eklendi'}`,
-        { description: `${servisAdi(sonuc.service.plaka)} rotası güncellendi.` },
+        {
+          description: sonuc.service
+            ? `${servisAdi(sonuc.service.plaka)} rotası güncellendi.`
+            : undefined,
+        },
       )
       onOpenChange(false)
     } catch (mesaj) {
@@ -176,7 +180,10 @@ export function EmployeeFormModal({
               disabled={kaydediliyor}
               onValueChange={(value) => {
                 setValue('adres', value, { shouldValidate: true })
-                // Serbest yazımda eski koordinat geçersiz; backend geocode eder.
+                // Serbest yazımda eski koordinat da ilçe de geçersiz. İlçe
+                // bırakılırsa backend onu adresin önüne koyuyor ve kişi yazılan
+                // adrese değil eski ilçenin merkezine yerleşiyordu.
+                setValue('ilce', '')
                 setValue('lat', '')
                 setValue('lon', '')
               }}

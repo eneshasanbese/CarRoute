@@ -14,7 +14,7 @@ import { Link } from 'react-router-dom'
 import { servicesApi } from '@/api/servicesApi'
 import { LocationMiniMap } from '@/components/map/LocationMiniMap'
 import { Badge } from '@/components/ui/badge'
-import { serviceColor } from '@/lib/serviceColors'
+import { useServiceColor } from '@/hooks/useServiceColor'
 import { useAppSelector } from '@/store/hooks'
 import { selectServiceNames } from '@/store/selectors'
 import type { Employee, RouteStop, Sefer } from '@/types'
@@ -45,6 +45,7 @@ export function EmployeeDetailModal({
   const [yukleniyor, setYukleniyor] = useState(false)
   const [hata, setHata] = useState<string | null>(null)
   const servisAdlari = useAppSelector(selectServiceNames)
+  const serviceColor = useServiceColor()
 
   const servisId = employee?.servisId ?? null
   const employeeId = employee?.id ?? null

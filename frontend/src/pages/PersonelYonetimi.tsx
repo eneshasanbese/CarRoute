@@ -62,7 +62,9 @@ export function PersonelYonetimi() {
         deleteEmployee({ id: silinecek.id, adSoyad: silinecek.adSoyad }),
       ).unwrap()
       toast.success(`${silinecek.adSoyad} silindi`, {
-        description: `${servisAdi(sonuc.service.plaka)} rotası güncellendi.`,
+        description: sonuc.service
+          ? `${servisAdi(sonuc.service.plaka)} rotası güncellendi.`
+          : undefined,
       })
     } catch (mesaj) {
       toast.error('Personel silinemedi', { description: String(mesaj) })
