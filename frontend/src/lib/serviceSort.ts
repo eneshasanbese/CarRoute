@@ -1,3 +1,4 @@
+import { servisAdi, servisAdiKarsilastir } from '@/lib/serviceName'
 import type { Service } from '@/types'
 
 export type ServiceSortKey =
@@ -13,7 +14,7 @@ export const SERVICE_SORT_OPTIONS: Array<{
   value: ServiceSortKey
   label: string
 }> = [
-  { value: 'servis', label: 'Servis no' },
+  { value: 'servis', label: 'Plaka' },
   { value: 'sure-artan', label: 'Süre: kısadan uzuna' },
   { value: 'sure-azalan', label: 'Süre: uzundan kısaya' },
   { value: 'km-artan', label: 'Mesafe: azdan çoğa' },
@@ -34,7 +35,7 @@ const KARSILASTIRICILAR: Record<
   ServiceSortKey,
   (a: Service, b: Service) => number
 > = {
-  servis: (a, b) => a.id - b.id,
+  servis: (a, b) => servisAdiKarsilastir(servisAdi(a.plaka), servisAdi(b.plaka)),
   'sure-artan': (a, b) => a.tahminiSureDk - b.tahminiSureDk,
   'sure-azalan': (a, b) => b.tahminiSureDk - a.tahminiSureDk,
   'km-artan': (a, b) => a.toplamKm - b.toplamKm,

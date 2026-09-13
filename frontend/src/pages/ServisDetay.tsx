@@ -32,6 +32,7 @@ import {
 } from '@/store/servicesSlice'
 import { CAPACITY_META, capacityLevel } from '@/lib/capacity'
 import { serviceColor } from '@/lib/serviceColors'
+import { servisAdi } from '@/lib/serviceName'
 import { formatKm, formatSure } from '@/lib/utils'
 
 export function ServisDetay() {
@@ -84,7 +85,13 @@ export function ServisDetay() {
             className="size-3 rounded-full"
             style={{ backgroundColor: serviceColor(servisId) }}
           />
-          <h1 className="text-2xl font-semibold">Servis-{servisId}</h1>
+          {service ? (
+            <h1 className="text-2xl font-semibold">{servisAdi(service.plaka)}</h1>
+          ) : servisYukleniyor ? (
+            <Skeleton className="h-8 w-36" />
+          ) : (
+            <h1 className="text-2xl font-semibold">Servis</h1>
+          )}
         </div>
         <div className="flex items-center gap-2">
           <SeferToggle
@@ -193,6 +200,7 @@ export function ServisDetay() {
             routes={[
               {
                 servisId,
+                ad: servisAdi(service?.plaka),
                 stops: route?.stops ?? [],
                 geometry: route?.geometry ?? null,
               },

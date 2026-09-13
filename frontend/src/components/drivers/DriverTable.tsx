@@ -18,7 +18,6 @@ import {
   SortableHeader,
   TablePagination,
 } from '@/components/common/TableParts'
-import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import {
@@ -33,30 +32,32 @@ import {
   usePageIndexClamp,
   useStablePagination,
 } from '@/hooks/useStablePagination'
+import { CAPACITY_META, capacityLevel } from '@/lib/capacity'
 import { serviceColor } from '@/lib/serviceColors'
-import { servisAdiKarsilastir } from '@/lib/serviceName'
+import { servisAdi, servisAdiKarsilastir } from '@/lib/serviceName'
 import { metinEsitlik, TUM_DEGERLER } from '@/lib/tableFilters'
-import type { Employee } from '@/types'
+import { cn } from '@/lib/utils'
+import type { Driver, Service } from '@/types'
 
 const SAYFA_BOYUTU = 12
 
-interface EmployeeTableProps {
-  employees: Employee[]
-  /** Servis id -> ad (plaka); servis sütunu ve filtresi için. */
-  servisAdlari: Record<number, string>
-  onEdit: (employee: Employee) => void
-  onDelete: (employee: Employee) => void
+interface DriverTableProps {
+  drivers: Driver[]
+  /** Servis doluluğunu göstermek için; şoförün servis id'siyle eşleşir. */
+  services: Service[]
+  onEdit: (driver: Driver) => void
+  onDelete: (driver: Driver) => void
   /** Satıra tıklanınca detay kartını açar. */
-  onSelect: (employee: Employee) => void
+  onSelect: (driver: Driver) => void
 }
 
-export function EmployeeTable({
-  employees,
-  servisAdlari,
+export function DriverTable({
+  drivers,
+  services,
   onEdit,
   onDelete,
   onSelect,
-}: EmployeeTableProps) {
+}: DriverTableProps) {
   const [sorting, setSorting] = useState<SortingState>([
     { id: 'adSoyad', desc: false },
   ])
@@ -66,11 +67,16 @@ export function EmployeeTable({
     useStablePagination(SAYFA_BOYUTU)
 
   const ilceler = useMemo(
-    () => [...new Set(employees.map((e) => e.ilce))].sort((a, b) => a.localeCompare(b, 'tr')),
-    [employees],
+    () => [...new Set(drivers.map((d) => d.ilce))].sort((a, b) => a.localeCompare(b, 'tr')),
+    [drivers],
   )
 
-  const columns = useMemo<ColumnDef<Employee>[]>(
+  const servisler = useMemo(
+    () => new Map(services.map((service) => [service.id, service])),
+    [services],
+  )
+
+  const columns = useMemo<ColumnDef<Driver>[]>(
     () => [
       {
         accessorKey: 'adSoyad',
@@ -82,18 +88,14 @@ export function EmployeeTable({
         ),
       },
       {
-        accessorKey: 'cinsiyet',
-        header: 'Cinsiyet',
-        filterFn: metinEsitlik,
-      },
-      {
-        accessorKey: 'yas',
-        header: ({ column }) => (
-          <SortableHeader column={column}>Yaş</SortableHeader>
-        ),
-        cell: ({ row }) => (
-          <span className="tabular-nums">{row.original.yas}</span>
-        ),
+        accessorKey: 'telefon',
+        header: 'Telefon',
+        cell: ({ row }) =>
+          row.original.telefon ? (
+            <span className="tabular-nums">{row.original.telefon}</span>
+          ) : (
+            <span className="text-muted-foreground">—</span>
+          ),
       },
       {
         accessorKey: 'ilce',
@@ -102,7 +104,7 @@ export function EmployeeTable({
       },
       {
         accessorKey: 'adres',
-        header: 'Adres',
+        header: 'Ev adresi',
         cell: ({ row }) => (
           <span
             className="block max-w-[22rem] truncate text-muted-foreground"
@@ -113,58 +115,60 @@ export function EmployeeTable({
         ),
       },
       {
-        accessorKey: 'arabaliMi',
-        header: 'Araçlı',
-        filterFn: metinEsitlik,
-        cell: ({ row }) =>
-          row.original.arabaliMi ? (
-            <Badge variant="secondary">Evet</Badge>
-          ) : (
-            <span className="text-muted-foreground">—</span>
-          ),
-      },
-      {
-        accessorKey: 'cocukVarMi',
-        header: 'Çocuk',
-        filterFn: metinEsitlik,
-        cell: ({ row }) =>
-          row.original.cocukVarMi ? (
-            <Badge variant="secondary">Var</Badge>
-          ) : (
-            <span className="text-muted-foreground">—</span>
-          ),
-      },
-      {
-        accessorKey: 'servisId',
+        // Servisin adı plakası; sütun ikisini tek yerde gösteriyor.
+        id: 'servis',
+        accessorFn: (driver) => servisAdi(driver.plaka),
         header: ({ column }) => (
           <SortableHeader column={column}>Servis</SortableHeader>
         ),
-        filterFn: metinEsitlik,
-        // Sütun id'yi taşıyor (filtre id ile eşleşiyor) ama sıralama görünen ada göre.
         sortingFn: (a, b) =>
           servisAdiKarsilastir(
-            servisAdlari[a.original.servisId ?? -1] ?? '',
-            servisAdlari[b.original.servisId ?? -1] ?? '',
+            servisAdi(a.original.plaka),
+            servisAdi(b.original.plaka),
           ),
         cell: ({ row }) => {
           const servisId = row.original.servisId
           if (servisId == null) {
-            return <span className="text-muted-foreground">Atanmadı</span>
+            return <span className="text-muted-foreground">Servisi yok</span>
           }
+          const servis = servisler.get(servisId)
           return (
-            <Link
-              to={`/servis/${servisId}`}
-              className="inline-flex items-center gap-1.5 hover:underline"
-              onClick={(event) => event.stopPropagation()}
-            >
-              <span
-                className="size-2.5 rounded-full"
-                style={{ backgroundColor: serviceColor(servisId) }}
-              />
-              {servisAdlari[servisId] ?? 'Servis'}
-            </Link>
+            <div className="flex items-center gap-2">
+              <Link
+                to={`/servis/${servisId}`}
+                className="inline-flex items-center gap-1.5 font-medium tabular-nums hover:underline"
+                onClick={(event) => event.stopPropagation()}
+              >
+                <span
+                  className="size-2.5 rounded-full"
+                  style={{ backgroundColor: serviceColor(servisId) }}
+                />
+                {servisAdi(row.original.plaka)}
+              </Link>
+              {servis ? (
+                <span
+                  className={cn(
+                    'text-xs tabular-nums',
+                    CAPACITY_META[capacityLevel(servis)].text,
+                  )}
+                  title="Doluluk"
+                >
+                  {servis.kisiSayisi}/{servis.maxKapasite}
+                </span>
+              ) : null}
+            </div>
           )
         },
+      },
+      {
+        accessorKey: 'model',
+        header: 'Araç',
+        cell: ({ row }) =>
+          row.original.model ? (
+            <span className="text-muted-foreground">{row.original.model}</span>
+          ) : (
+            <span className="text-muted-foreground">—</span>
+          ),
       },
       {
         id: 'islemler',
@@ -200,11 +204,11 @@ export function EmployeeTable({
         ),
       },
     ],
-    [servisAdlari, onEdit, onDelete],
+    [servisler, onEdit, onDelete],
   )
 
   const table = useReactTable({
-    data: employees,
+    data: drivers,
     columns,
     state: { sorting, columnFilters, globalFilter, pagination },
     // Liste periyodik tazeleniyor; sayfa yalnızca kullanıcı arayınca,
@@ -225,9 +229,11 @@ export function EmployeeTable({
     },
     globalFilterFn: (row, _columnId, value) => {
       const terim = String(value).toLocaleLowerCase('tr')
+      const { adSoyad, adres, plaka } = row.original
       return (
-        row.original.adSoyad.toLocaleLowerCase('tr').includes(terim) ||
-        row.original.adres.toLocaleLowerCase('tr').includes(terim)
+        adSoyad.toLocaleLowerCase('tr').includes(terim) ||
+        adres.toLocaleLowerCase('tr').includes(terim) ||
+        (plaka ?? '').toLocaleLowerCase('tr').includes(terim)
       )
     },
     getCoreRowModel: getCoreRowModel(),
@@ -238,16 +244,8 @@ export function EmployeeTable({
 
   usePageIndexClamp(table)
 
-  function filtreDegeri(columnId: string) {
-    return (table.getColumn(columnId)?.getFilterValue() as string) ?? TUM_DEGERLER
-  }
-
-  function filtreAta(columnId: string, value: string) {
-    table
-      .getColumn(columnId)
-      ?.setFilterValue(value === TUM_DEGERLER ? undefined : value)
-  }
-
+  const ilceFiltresi =
+    (table.getColumn('ilce')?.getFilterValue() as string) ?? TUM_DEGERLER
   const filtreVar = columnFilters.length > 0 || globalFilter.length > 0
 
   return (
@@ -257,7 +255,7 @@ export function EmployeeTable({
           <SearchIcon className="pointer-events-none absolute top-1/2 left-2.5 size-4 -translate-y-1/2 text-muted-foreground" />
           <Input
             className="pl-8"
-            placeholder="Ad veya adres ara…"
+            placeholder="Ad, adres veya plaka ara…"
             value={globalFilter}
             onChange={(event) => table.setGlobalFilter(event.target.value)}
           />
@@ -265,35 +263,13 @@ export function EmployeeTable({
 
         <FilterSelect
           label="İlçe"
-          value={filtreDegeri('ilce')}
-          onChange={(value) => filtreAta('ilce', value)}
+          value={ilceFiltresi}
+          onChange={(value) =>
+            table
+              .getColumn('ilce')
+              ?.setFilterValue(value === TUM_DEGERLER ? undefined : value)
+          }
           options={ilceler.map((ilce) => ({ value: ilce, label: ilce }))}
-        />
-        <FilterSelect
-          label="Cinsiyet"
-          value={filtreDegeri('cinsiyet')}
-          onChange={(value) => filtreAta('cinsiyet', value)}
-          options={[
-            { value: 'Kadın', label: 'Kadın' },
-            { value: 'Erkek', label: 'Erkek' },
-          ]}
-        />
-        <FilterSelect
-          label="Servis"
-          value={filtreDegeri('servisId')}
-          onChange={(value) => filtreAta('servisId', value)}
-          options={Object.entries(servisAdlari)
-            .map(([id, ad]) => ({ value: id, label: ad }))
-            .sort((a, b) => servisAdiKarsilastir(a.label, b.label))}
-        />
-        <FilterSelect
-          label="Araçlı"
-          value={filtreDegeri('arabaliMi')}
-          onChange={(value) => filtreAta('arabaliMi', value)}
-          options={[
-            { value: 'true', label: 'Araçlı' },
-            { value: 'false', label: 'Araçsız' },
-          ]}
         />
 
         {filtreVar ? (
@@ -357,15 +333,11 @@ export function EmployeeTable({
         {table.getRowModel().rows.length === 0 ? (
           <EmptyState
             className="border-0"
-            title={
-              filtreVar
-                ? 'Filtreye uyan personel yok'
-                : 'Henüz personel eklenmemiş'
-            }
+            title={filtreVar ? 'Filtreye uyan şoför yok' : 'Henüz şoför eklenmemiş'}
             description={
               filtreVar
                 ? 'Filtreleri temizleyip tekrar deneyebilirsin.'
-                : '"+ Personel Ekle" ile ilk kişiyi ekleyebilirsin.'
+                : '"+ Şoför Ekle" ile ilk şoförü ekleyebilirsin.'
             }
           />
         ) : null}
@@ -373,7 +345,7 @@ export function EmployeeTable({
 
       <TablePagination
         table={table}
-        toplam={employees.length}
+        toplam={drivers.length}
         filtreVar={filtreVar}
       />
     </div>

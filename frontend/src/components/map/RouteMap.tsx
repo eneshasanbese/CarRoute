@@ -14,7 +14,10 @@ import { cn, formatKm } from '@/lib/utils'
 import type { LatLon, RouteStop } from '@/types'
 
 export interface MapRoute {
+  /** Renk ve katman anahtarı. */
   servisId: number
+  /** İpucunda görünen servis adı (plaka). */
+  ad: string
   stops: RouteStop[]
   /**
    * Yolu takip eden çizgi. Backend'de OSRM kapalıysa null gelir; o durumda
@@ -124,7 +127,7 @@ function ServiceRouteLayer({
             <span className="font-medium">{stop.adSoyad}</span>
             <br />
             <span className="text-xs">
-              Servis-{stop.servisId} · Durak {stop.durakNo} ·{' '}
+              {route.ad} · Durak {stop.durakNo} ·{' '}
               {formatKm(stop.oncekiDuraktanKm)}
             </span>
           </Tooltip>

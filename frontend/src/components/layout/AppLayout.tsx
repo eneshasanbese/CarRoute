@@ -1,10 +1,17 @@
-import { BusIcon, LayoutDashboardIcon, MapIcon, UsersIcon } from 'lucide-react'
+import {
+  BusIcon,
+  IdCardIcon,
+  LayoutDashboardIcon,
+  MapIcon,
+  UsersIcon,
+} from 'lucide-react'
 import { NavLink, Outlet } from 'react-router-dom'
 import { cn } from '@/lib/utils'
 
 const NAV = [
   { to: '/', label: 'Dashboard', icon: LayoutDashboardIcon, end: true },
   { to: '/personel', label: 'Personel', icon: UsersIcon, end: false },
+  { to: '/soforler', label: 'Şoförler', icon: IdCardIcon, end: false },
   { to: '/harita', label: 'Harita', icon: MapIcon, end: false },
 ]
 

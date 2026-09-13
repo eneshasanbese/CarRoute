@@ -1,4 +1,5 @@
 import { CAPACITY_META, capacityLevel } from '@/lib/capacity'
+import { servisAdi } from '@/lib/serviceName'
 import { cn } from '@/lib/utils'
 import type { Service } from '@/types'
 
@@ -40,7 +41,7 @@ export function CapacityGauge({
         aria-valuenow={service.kisiSayisi}
         aria-valuemin={0}
         aria-valuemax={service.maxKapasite}
-        aria-label={`Servis-${service.id} doluluk`}
+        aria-label={`${servisAdi(service.plaka)} doluluk`}
       >
         <div
           className={cn('h-full rounded-full transition-all', meta.bar)}

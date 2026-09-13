@@ -125,8 +125,9 @@ public class AssignmentService {
     }
 
     /**
-     * Yalnızca servisi olmayan işçileri yerleştirir. Uygulama her açıldığında
-     * çağrılır; hepsi zaten atanmışsa hiçbir şey yapmaz.
+     * Yalnızca servisi olmayan işçileri yerleştirir. Uygulama her açıldığında ve
+     * bir şoför silinip servisinin yolcuları boşa çıktığında çağrılır; hepsi
+     * zaten atanmışsa hiçbir şey yapmaz.
      */
     @Transactional
     public int assignUnassigned() {
@@ -145,7 +146,8 @@ public class AssignmentService {
      * doluluk onarımı ve yerel arama çalışır.
      *
      * <p>
-     * Yeni bir servis eklendiğinde çağrılıyor. {@link #reassignAll} yerine bunun
+     * Yeni bir servis eklendiğinde ve bir şoförün ev adresi değiştiğinde
+     * çağrılıyor. {@link #reassignAll} yerine bunun
      * tercih edilmesi bilinçli: baştan dağıtım muhtemelen biraz daha iyi bir
      * sonuç bulur ama neredeyse herkesin servisini değiştirir. Gerçek bir kurumda
      * personelin servisi durduk yere değişmemeli; burada yalnızca taşınması

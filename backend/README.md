@@ -31,6 +31,8 @@ Uygulama açılışında iki adım çalışır (`@Order` ile sıralı):
 | `DELETE` | `/api/employees/{id}`                  | Siler, ilgili servisin rotasını yeniden hesaplar    |
 | `GET`    | `/api/drivers`                         | Şoförler ve sürdükleri servisler                    |
 | `POST`   | `/api/drivers`                         | Şoför + yeni servis oluşturur, dağıtımı dengeler    |
+| `PUT`    | `/api/drivers/{id}`                    | Şoförü ve aracını günceller; adres değiştiyse dengeler |
+| `DELETE` | `/api/drivers/{id}`                    | Şoförü ve servisini siler, yolcularını dağıtır      |
 | `GET`    | `/api/services?sefer=sabah|aksam`      | 10 servisin doluluk, rota özeti ve kural durumu     |
 | `GET`    | `/api/services/{id}`                   | Tek servisin özeti                                  |
 | `GET`    | `/api/services/{id}/route?sefer=…`     | Sıralı duraklar, varış aralıkları, yolculuk süreleri |
@@ -453,7 +455,14 @@ biliniyorsa `carroute.office.lat/lon` ile verilmeli.
 **İlçe kolonu yok.** Arayüzdeki `ilce` alanı adres metninden çıkarılıyor
 (`AddressUtils.extractDistrict`), çünkü `worker` tablosunda ayrı bir ilçe kolonu
 yok. Seed adres biçimi (`... Pendik/İstanbul`) için 12 ilçenin hepsinde doğru
-çalışıyor.
+çalışıyor. Arayüzdeki autocomplete'ten seçilen adresler Nominatim biçiminde
+(`..., Pendik, İstanbul, Marmara Bölgesi, 34899, Türkiye`) kaydediliyor; bunlarda
+ilçe, sondaki ülke, posta kodu ve bölge atıldıktan sonra ilden önceki parça.
+
+**Servis adı plaka.** `service_vehicle.id` silme ve eklemelerle boşluklu
+ilerlediği için (10 servis varken `12` gibi) arayüzde ad olarak gösterilmiyor;
+servis özetleri `plaka` alanını taşıyor ve arayüz servisi plakasıyla anıyor. Bu
+yüzden şoför eklerken/güncellerken plaka zorunlu ve iki araçta aynı olamaz (409).
 
 **Çocuk bilgisi.** Yalnızca `has_child` boolean'ı var; çocuk sayısı tutulmuyor.
 

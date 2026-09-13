@@ -1,8 +1,19 @@
 import { createSelector } from '@reduxjs/toolkit'
+import { servisAdi } from '@/lib/serviceName'
 import type { RootState } from '@/store'
 
 export const selectServices = (state: RootState) => state.services.items
 export const selectEmployees = (state: RootState) => state.employees.items
+
+/**
+ * Servis id -> ad (plaka). Yalnızca servis id'si taşıyan kayıtlar (personel)
+ * servisin adını buradan okur.
+ */
+export const selectServiceNames = createSelector(
+  [selectServices],
+  (services): Record<number, string> =>
+    Object.fromEntries(services.map((s) => [s.id, servisAdi(s.plaka)])),
+)
 
 export const selectServiceById = (servisId: number) => (state: RootState) =>
   state.services.items.find((service) => service.id === servisId)
