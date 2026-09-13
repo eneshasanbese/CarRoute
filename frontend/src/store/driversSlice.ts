@@ -1,13 +1,14 @@
-import { createAsyncThunk, createSlice } from '@reduxjs/toolkit'
+import { createAsyncThunk, createSlice, isAnyOf } from '@reduxjs/toolkit'
 import { apiErrorMessage } from '@/api/axiosClient'
 import { driversApi } from '@/api/driversApi'
 import type { RequestStatus } from '@/store/employeesSlice'
-import type { Driver, DriverInput } from '@/types'
+import type { Driver, DriverDeletionResult, DriverInput } from '@/types'
 
 interface DriversState {
   items: Driver[]
   status: RequestStatus
   error: string | null
+  /** Ekleme/güncelleme/silme sürerken butonları kilitlemek için. */
   saving: boolean
 }
 
@@ -42,6 +43,30 @@ export const createDriver = createAsyncThunk<
   }
 })
 
+export const updateDriver = createAsyncThunk<
+  Driver,
+  { id: number; input: DriverInput },
+  { rejectValue: string }
+>('drivers/update', async ({ id, input }, { rejectWithValue }) => {
+  try {
+    return await driversApi.update(id, input)
+  } catch (error) {
+    return rejectWithValue(apiErrorMessage(error))
+  }
+})
+
+export const deleteDriver = createAsyncThunk<
+  DriverDeletionResult,
+  number,
+  { rejectValue: string }
+>('drivers/delete', async (id, { rejectWithValue }) => {
+  try {
+    return await driversApi.remove(id)
+  } catch (error) {
+    return rejectWithValue(apiErrorMessage(error))
+  }
+})
+
 const driversSlice = createSlice({
   name: 'drivers',
   initialState,
@@ -61,16 +86,35 @@ const driversSlice = createSlice({
         state.error = action.payload ?? 'Şoför listesi yüklenemedi.'
       })
 
-      .addCase(createDriver.pending, (state) => {
-        state.saving = true
-      })
+      // Şoför değişiklikleri birden fazla servisi etkileyebildiği için servis ve
+      // personel listesini dispatch eden bileşen ayrıca tazeler.
       .addCase(createDriver.fulfilled, (state, action) => {
         state.saving = false
         state.items.push(action.payload)
       })
-      .addCase(createDriver.rejected, (state) => {
+      .addCase(updateDriver.fulfilled, (state, action) => {
         state.saving = false
+        const index = state.items.findIndex((d) => d.id === action.payload.id)
+        if (index !== -1) state.items[index] = action.payload
       })
+      .addCase(deleteDriver.fulfilled, (state, action) => {
+        state.saving = false
+        state.items = state.items.filter((d) => d.id !== action.meta.arg)
+      })
+
+      // Üç mutasyonun pending/rejected davranışı aynı.
+      .addMatcher(
+        isAnyOf(createDriver.pending, updateDriver.pending, deleteDriver.pending),
+        (state) => {
+          state.saving = true
+        },
+      )
+      .addMatcher(
+        isAnyOf(createDriver.rejected, updateDriver.rejected, deleteDriver.rejected),
+        (state) => {
+          state.saving = false
+        },
+      )
   },
 })
 

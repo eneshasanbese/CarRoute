@@ -19,6 +19,7 @@ import {
   toggleServiceVisibility,
 } from '@/store/uiSlice'
 import { serviceColor } from '@/lib/serviceColors'
+import { servisAdi } from '@/lib/serviceName'
 import { cn, formatKm } from '@/lib/utils'
 
 export function HaritaGenel() {
@@ -52,7 +53,14 @@ export function HaritaGenel() {
     .flatMap((service) => {
       const rota = routes[service.id]
       return rota
-        ? [{ servisId: service.id, stops: rota.stops, geometry: rota.geometry }]
+        ? [
+            {
+              servisId: service.id,
+              ad: servisAdi(service.plaka),
+              stops: rota.stops,
+              geometry: rota.geometry,
+            },
+          ]
         : []
     })
 
@@ -154,7 +162,9 @@ export function HaritaGenel() {
                           className="size-3 shrink-0 rounded-full"
                           style={{ backgroundColor: serviceColor(service.id) }}
                         />
-                        <span className="font-medium">Servis-{service.id}</span>
+                        <span className="font-medium">
+                          {servisAdi(service.plaka)}
+                        </span>
                         <span className="ml-auto text-xs text-muted-foreground tabular-nums">
                           {service.kisiSayisi} kişi ·{' '}
                           {formatKm(service.toplamKm)}
@@ -166,8 +176,8 @@ export function HaritaGenel() {
                         className="size-7"
                         aria-label={
                           gizli
-                            ? `Servis-${service.id} katmanını aç`
-                            : `Servis-${service.id} katmanını kapat`
+                            ? `${servisAdi(service.plaka)} katmanını aç`
+                            : `${servisAdi(service.plaka)} katmanını kapat`
                         }
                         onClick={() =>
                           dispatch(toggleServiceVisibility(service.id))

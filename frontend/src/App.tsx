@@ -5,6 +5,7 @@ import { Skeleton } from '@/components/ui/skeleton'
 import { Toaster } from '@/components/ui/sonner'
 import { Dashboard } from '@/pages/Dashboard'
 import { PersonelYonetimi } from '@/pages/PersonelYonetimi'
+import { SoforYonetimi } from '@/pages/SoforYonetimi'
 
 // Harita sayfaları Leaflet'i de yükler; ilk açılışı yavaşlatmamak için ayrı chunk.
 const ServisDetay = lazy(() =>
@@ -32,6 +33,7 @@ export default function App() {
             <Route element={<AppLayout />}>
               <Route index element={<Dashboard />} />
               <Route path="personel" element={<PersonelYonetimi />} />
+              <Route path="soforler" element={<SoforYonetimi />} />
               <Route path="servis/:id" element={<ServisDetay />} />
               <Route path="harita" element={<HaritaGenel />} />
               <Route path="*" element={<Navigate to="/" replace />} />

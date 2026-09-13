@@ -5,6 +5,7 @@ import { Badge } from '@/components/ui/badge'
 import { Card } from '@/components/ui/card'
 import { CAPACITY_META, capacityLevel } from '@/lib/capacity'
 import { serviceColor } from '@/lib/serviceColors'
+import { servisAdi } from '@/lib/serviceName'
 import { cn, formatKm, formatSure } from '@/lib/utils'
 import type { Service } from '@/types'
 
@@ -38,7 +39,7 @@ export function ServiceCard({ service }: ServiceCardProps) {
             to={`/servis/${service.id}`}
             className="font-semibold outline-none after:absolute after:inset-0 after:content-['']"
           >
-            Servis-{service.id}
+            {servisAdi(service.plaka)}
           </Link>
           {level === 'under' ? (
             <Badge

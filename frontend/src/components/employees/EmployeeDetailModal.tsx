@@ -15,6 +15,8 @@ import { servicesApi } from '@/api/servicesApi'
 import { LocationMiniMap } from '@/components/map/LocationMiniMap'
 import { Badge } from '@/components/ui/badge'
 import { serviceColor } from '@/lib/serviceColors'
+import { useAppSelector } from '@/store/hooks'
+import { selectServiceNames } from '@/store/selectors'
 import type { Employee, RouteStop, Sefer } from '@/types'
 
 /** Bir seferde bu kişinin durağı; servisi yoksa ya da yüklenemediyse null. */
@@ -42,6 +44,7 @@ export function EmployeeDetailModal({
   const [aksam, setAksam] = useState<Durak>(null)
   const [yukleniyor, setYukleniyor] = useState(false)
   const [hata, setHata] = useState<string | null>(null)
+  const servisAdlari = useAppSelector(selectServiceNames)
 
   const servisId = employee?.servisId ?? null
   const employeeId = employee?.id ?? null
@@ -125,7 +128,7 @@ export function EmployeeDetailModal({
                       className="shrink-0 rounded-md px-2 py-1 text-sm font-medium hover:underline"
                       style={{ color: renk }}
                     >
-                      Servis-{servisId}
+                      {servisAdlari[servisId] ?? 'Servis'}
                     </Link>
                   ) : (
                     <Badge variant="outline">Servis atanmadı</Badge>

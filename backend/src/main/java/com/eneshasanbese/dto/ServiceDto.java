@@ -3,6 +3,9 @@ package com.eneshasanbese.dto;
 /**
  * Bir servisin tek bir sefer için özeti.
  *
+ * @param plaka             aracın plakası — arayüzde servisin adı. Id silme ve
+ *                          eklemelerle boşluklu ilerlediği için ad olarak
+ *                          kullanılmıyor.
  * @param sefer             "sabah" veya "aksam"
  * @param kalkisSaati       sabah: 08:00'den geriye sayılan kalkış; akşam: sabit
  *                          ofis kalkışı (17:30)
@@ -15,6 +18,7 @@ package com.eneshasanbese.dto;
  */
 public record ServiceDto(
         Long id,
+        String plaka,
         String sefer,
         int kisiSayisi,
         int minKapasite,

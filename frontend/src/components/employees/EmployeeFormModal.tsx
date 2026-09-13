@@ -26,6 +26,7 @@ import { Switch } from '@/components/ui/switch'
 import { toast } from 'sonner'
 import { createEmployee, updateEmployee } from '@/store/employeesSlice'
 import { useAppDispatch, useAppSelector } from '@/store/hooks'
+import { servisAdi } from '@/lib/serviceName'
 import { sayiAlani, telefonAlani } from '@/lib/validation'
 import type { Employee, EmployeeInput } from '@/types'
 
@@ -133,7 +134,7 @@ export function EmployeeFormModal({
 
       toast.success(
         `${input.adSoyad} ${employee ? 'güncellendi' : 'eklendi'}`,
-        { description: `Servis-${sonuc.service.id} rotası güncellendi.` },
+        { description: `${servisAdi(sonuc.service.plaka)} rotası güncellendi.` },
       )
       onOpenChange(false)
     } catch (mesaj) {

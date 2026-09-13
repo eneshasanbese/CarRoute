@@ -1,10 +1,10 @@
-import { Loader2Icon, PlusIcon } from "lucide-react"
+import { Loader2Icon, PlusIcon } from 'lucide-react'
 import { useCallback, useState } from 'react'
 import { toast } from 'sonner'
-import { ErrorState } from "@/components/common/ErrorState"
-import { EmployeeDetailModal } from "@/components/employees/EmployeeDetailModal"
-import { EmployeeFormModal } from '@/components/employees/EmployeeFormModal'
-import { EmployeeTable } from '@/components/employees/EmployeeTable'
+import { ErrorState } from '@/components/common/ErrorState'
+import { DriverDetailModal } from '@/components/drivers/DriverDetailModal'
+import { DriverFormModal } from '@/components/drivers/DriverFormModal'
+import { DriverTable } from '@/components/drivers/DriverTable'
 import {
   AlertDialog,
   AlertDialogAction,
@@ -19,102 +19,116 @@ import { Button } from '@/components/ui/button'
 import { Skeleton } from '@/components/ui/skeleton'
 import { POLL_INTERVAL_MS, usePolling } from '@/hooks/usePolling'
 import { servisAdi } from '@/lib/serviceName'
-import { deleteEmployee, fetchEmployees } from '@/store/employeesSlice'
+import { deleteDriver, fetchDrivers } from '@/store/driversSlice'
+import { fetchEmployees } from '@/store/employeesSlice'
 import { useAppDispatch, useAppSelector } from '@/store/hooks'
-import { selectServiceNames } from '@/store/selectors'
 import { fetchServices } from '@/store/servicesSlice'
-import type { Employee } from '@/types'
+import type { Driver } from '@/types'
 
-export function PersonelYonetimi() {
+export function SoforYonetimi() {
   const dispatch = useAppDispatch()
-  const employees = useAppSelector((state) => state.employees.items)
-  const status = useAppSelector((state) => state.employees.status)
-  const error = useAppSelector((state) => state.employees.error)
-  const saving = useAppSelector((state) => state.employees.saving)
-  const servisAdlari = useAppSelector(selectServiceNames)
+  const drivers = useAppSelector((state) => state.drivers.items)
+  const status = useAppSelector((state) => state.drivers.status)
+  const error = useAppSelector((state) => state.drivers.error)
+  const saving = useAppSelector((state) => state.drivers.saving)
+  const services = useAppSelector((state) => state.services.items)
 
   const [formAcik, setFormAcik] = useState(false)
-  const [duzenlenen, setDuzenlenen] = useState<Employee | null>(null)
-  const [silinecek, setSilinecek] = useState<Employee | null>(null)
-  const [secilen, setSecilen] = useState<Employee | null>(null)
+  const [duzenlenen, setDuzenlenen] = useState<Driver | null>(null)
+  const [silinecek, setSilinecek] = useState<Driver | null>(null)
+  const [secilen, setSecilen] = useState<Driver | null>(null)
 
   const load = useCallback(() => {
-    void dispatch(fetchEmployees())
+    void dispatch(fetchDrivers())
     void dispatch(fetchServices())
   }, [dispatch])
 
   usePolling(load, POLL_INTERVAL_MS)
+
+  function servisOf(driver: Driver | null) {
+    return driver?.servisId != null
+      ? services.find((service) => service.id === driver.servisId)
+      : undefined
+  }
 
   function ekle() {
     setDuzenlenen(null)
     setFormAcik(true)
   }
 
-  function duzenle(employee: Employee) {
-    setDuzenlenen(employee)
+  function duzenle(driver: Driver) {
+    setDuzenlenen(driver)
     setFormAcik(true)
   }
 
   async function silmeyiOnayla() {
     if (!silinecek) return
     try {
-      const sonuc = await dispatch(
-        deleteEmployee({ id: silinecek.id, adSoyad: silinecek.adSoyad }),
-      ).unwrap()
+      const sonuc = await dispatch(deleteDriver(silinecek.id)).unwrap()
+
+      // Silinen servisin yolcuları başka servislere geçti; iki liste de bayat.
+      void dispatch(fetchServices())
+      void dispatch(fetchEmployees())
+
       toast.success(`${silinecek.adSoyad} silindi`, {
-        description: `${servisAdi(sonuc.service.plaka)} rotası güncellendi.`,
+        description:
+          sonuc.tasinanPersonel > 0
+            ? `${servisAdi(silinecek.plaka)} servisi kaldırıldı; ${sonuc.tasinanPersonel} kişi diğer servislere dağıtıldı.`
+            : 'Şoförün servisinde yolcu yoktu.',
       })
     } catch (mesaj) {
-      toast.error('Personel silinemedi', { description: String(mesaj) })
+      toast.error('Şoför silinemedi', { description: String(mesaj) })
     } finally {
       setSilinecek(null)
     }
   }
 
   const yukleniyor = status === 'loading' || status === 'idle'
+  const silinecekServis = servisOf(silinecek)
 
   return (
     <div className="space-y-6">
       <div className="flex flex-wrap items-end justify-between gap-3">
         <div>
-          <h1 className="text-2xl font-semibold">Personel Yönetimi</h1>
+          <h1 className="text-2xl font-semibold">Şoför Yönetimi</h1>
           <p className="text-sm text-muted-foreground">
-            Kişi eklendiğinde veya silindiğinde ilgili servisin rotası anında
-            yeniden hesaplanır.
+            Her şoför bir servisin sahibidir. Şoför eklenince yeni servis açılır,
+            silinince servisi kapanır ve yolcuları diğer servislere dağıtılır.
           </p>
         </div>
         <Button onClick={ekle}>
           <PlusIcon />
-          Personel Ekle
+          Şoför Ekle
         </Button>
       </div>
 
       {status === 'failed' ? (
         <ErrorState
-          title="Personel listesi yüklenemedi"
+          title="Şoför listesi yüklenemedi"
           message={error}
           onRetry={load}
         />
-      ) : yukleniyor && employees.length === 0 ? (
+      ) : yukleniyor && drivers.length === 0 ? (
         <TableSkeleton />
       ) : (
-        <EmployeeTable
-          employees={employees}
-          servisAdlari={servisAdlari}
+        <DriverTable
+          drivers={drivers}
+          services={services}
           onEdit={duzenle}
           onDelete={setSilinecek}
           onSelect={setSecilen}
         />
       )}
 
-      <EmployeeFormModal
+      <DriverFormModal
         open={formAcik}
         onOpenChange={setFormAcik}
-        employee={duzenlenen}
+        driver={duzenlenen}
       />
 
-      <EmployeeDetailModal
-        employee={secilen}
+      <DriverDetailModal
+        driver={secilen}
+        service={servisOf(secilen)}
         onOpenChange={(open) => !open && setSecilen(null)}
       />
 
@@ -124,11 +138,15 @@ export function PersonelYonetimi() {
       >
         <AlertDialogContent>
           <AlertDialogHeader>
-            <AlertDialogTitle>Personel silinsin mi?</AlertDialogTitle>
+            <AlertDialogTitle>Şoför silinsin mi?</AlertDialogTitle>
             <AlertDialogDescription>
-              <strong>{silinecek?.adSoyad}</strong> kalıcı olarak silinecek.
+              <strong>{silinecek?.adSoyad}</strong>
               {silinecek?.servisId != null
-                ? ` ${servisAdlari[silinecek.servisId] ?? 'Servis'} rotası silme sonrası yeniden hesaplanır.`
+                ? ` ve sürdüğü ${servisAdi(silinecek.plaka)} servisi`
+                : ''}{' '}
+              kalıcı olarak silinecek.
+              {silinecekServis && silinecekServis.kisiSayisi > 0
+                ? ` Bu servisteki ${silinecekServis.kisiSayisi} kişi kalan servislere dağıtılır.`
                 : ''}
             </AlertDialogDescription>
           </AlertDialogHeader>
@@ -158,9 +176,6 @@ function TableSkeleton() {
     <div className="space-y-3">
       <div className="flex gap-2">
         <Skeleton className="h-9 flex-1" />
-        <Skeleton className="h-9 w-36" />
-        <Skeleton className="h-9 w-36" />
-        <Skeleton className="h-9 w-36" />
         <Skeleton className="h-9 w-36" />
       </div>
       <div className="space-y-2 rounded-xl border border-border bg-card p-3">

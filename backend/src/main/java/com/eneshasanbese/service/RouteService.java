@@ -511,6 +511,7 @@ public class RouteService {
 
         return new ServiceDto(
                 vehicle.getId(),
+                vehicle.getPlateNumber(),
                 shift.label(),
                 kisiSayisi,
                 settings.getMinCapacity(),

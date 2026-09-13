@@ -34,27 +34,30 @@ src/
   api/                      # Axios katmanı — backend'e giden tek kapı
     axiosClient.ts          #   axios örneği + apiErrorMessage (okunabilir hata metni)
     employeesApi.ts         #   /api/employees
+    driversApi.ts           #   /api/drivers
     servicesApi.ts          #   /api/services
     trafficApi.ts           #   /api/traffic
   store/                    # Redux Toolkit
     index.ts                #   configureStore + RootState / AppDispatch
     hooks.ts                #   useAppDispatch / useAppSelector (tipli)
     employeesSlice.ts       #   fetch / create / update / delete thunk'ları
+    driversSlice.ts         #   şoförler için aynı dört thunk
     servicesSlice.ts        #   servisler + servis id -> rota
     trafficSlice.ts         #   sabah / akşam yoğunluk
     uiSlice.ts              #   harita katman ve vurgu durumu
     selectors.ts            #   özet ve türetilmiş veriler (createSelector)
   components/
-    layout/AppLayout.tsx    # üst nav: Dashboard / Personel / Harita
-    common/                 # ErrorState ("Tekrar dene") + EmptyState
-    employees/              # EmployeeTable, EmployeeFormModal, AddressAutocomplete
+    layout/AppLayout.tsx    # üst nav: Dashboard / Personel / Şoförler / Harita
+    common/                 # ErrorState ("Tekrar dene"), EmptyState, TableParts (ortak tablo parçaları)
+    employees/              # EmployeeTable, EmployeeFormModal, EmployeeDetailModal, AddressAutocomplete
+    drivers/                # DriverTable, DriverFormModal, DriverDetailModal
     services/               # ServiceCard, CapacityGauge
     map/                    # RouteMap, RouteStopList
     traffic/                # TrafficPanel
     ui/                     # shadcn tarzı temel bileşenler (Radix + Tailwind)
-  pages/                    # Dashboard, PersonelYonetimi, ServisDetay, HaritaGenel
-  hooks/usePolling.ts       # periyodik tazeleme
-  lib/                      # capacity, serviceColors, geocode, utils
+  pages/                    # Dashboard, PersonelYonetimi, SoforYonetimi, ServisDetay, HaritaGenel
+  hooks/                    # usePolling (periyodik tazeleme), useStablePagination
+  lib/                      # capacity, serviceColors, geocode, tableFilters, utils
   types.ts                  # paylaşılan tipler
 ```
 
@@ -76,7 +79,9 @@ bloğunda.
 
 **Polling.** Sayfalar [usePolling](src/hooks/usePolling.ts) ile 5 sn'de bir
 tazeler (trafik paneli 60 sn). WebSocket'e geçilirse bu hook yerine soket
-olayları aynı thunk'ları dispatch etmeli.
+olayları aynı thunk'ları dispatch etmeli. Tablolar tazelemede bulunduğu sayfada
+kalır ([useStablePagination](src/hooks/useStablePagination.ts)); ilk sayfaya
+yalnızca arama, filtre ya da sıralama değişince dönülür.
 
 **Toast.** Bildirimler slice'larda değil, dispatch eden bileşende:
 `await dispatch(...).unwrap()` başarılıysa `toast.success`, hata fırlatırsa
@@ -89,6 +94,14 @@ olayları aynı thunk'ları dispatch etmeli.
   [src/lib/capacity.ts](src/lib/capacity.ts).
 - Servis renkleri servis id'sine sabitlenmiştir (10 ayırt edilebilir renk):
   [src/lib/serviceColors.ts](src/lib/serviceColors.ts).
+
+### Servis adı
+
+Servis her yerde aracın plakasıyla anılır, id ile değil: id silme ve eklemelerle
+boşluklu ilerlediği için 10 servis varken "Servis-12" görünüyordu. Id yalnızca
+URL'de (`/servis/:id`) ve renk eşlemesinde kalır. Tek kaynak:
+[src/lib/serviceName.ts](src/lib/serviceName.ts); yalnızca servis id'si taşıyan
+kayıtlar adı `selectServiceNames` ile okur.
 
 ### Harita çizgisi
 

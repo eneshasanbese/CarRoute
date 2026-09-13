@@ -23,6 +23,11 @@ export interface Employee {
 
 export interface Service {
   id: number
+  /**
+   * Aracın plakası; arayüzde servisin adı budur. Id silme/eklemeyle boşluklu
+   * ilerlediği için ad olarak gösterilmiyor — bkz. lib/serviceName.ts.
+   */
+  plaka: string | null
   sefer: Sefer
   kisiSayisi: number
   minKapasite: number // 5
@@ -146,14 +151,22 @@ export interface Driver {
   kapasite: number
 }
 
-/** Şoför ekleme gövdesi. Kaydedildiğinde yeni bir servis de oluşur. */
+/**
+ * Şoför ekleme/güncelleme gövdesi. Eklemede yeni bir servis de oluşur. Plaka
+ * zorunlu çünkü servisin adı; telefon boş bırakılırsa kayıtlı olan korunur.
+ */
 export interface DriverInput {
   adSoyad: string
   adres: string
   telefon?: string
-  plaka?: string
+  plaka: string
   model?: string
   ilce?: string
   lat?: number
   lon?: number
+}
+
+/** Şoför silme sonucu: silinen servisten kalan servislere dağıtılan kişi sayısı. */
+export interface DriverDeletionResult {
+  tasinanPersonel: number
 }

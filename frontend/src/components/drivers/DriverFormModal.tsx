@@ -16,18 +16,19 @@ import {
 } from '@/components/ui/dialog'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
+import { servisAdi } from '@/lib/serviceName'
 import { telefonAlani } from '@/lib/validation'
-import { createDriver } from '@/store/driversSlice'
+import { createDriver, updateDriver } from '@/store/driversSlice'
 import { fetchEmployees } from '@/store/employeesSlice'
 import { useAppDispatch, useAppSelector } from '@/store/hooks'
 import { fetchServices } from '@/store/servicesSlice'
-import type { DriverInput } from '@/types'
+import type { Driver, DriverInput } from '@/types'
 
 const formSchema = z.object({
   adSoyad: z.string().trim().min(3, 'Ad soyad en az 3 karakter olmalı.'),
   adres: z.string().trim().min(5, 'Adres zorunlu.'),
   telefon: telefonAlani(),
-  plaka: z.string().trim(),
+  plaka: z.string().trim().min(1, 'Plaka zorunlu; servis bu plakayla anılır.'),
   model: z.string().trim(),
   ilce: z.string(),
   lat: z.string(),
@@ -47,6 +48,19 @@ const BOS_FORM: FormValues = {
   lon: '',
 }
 
+function toFormValues(driver: Driver): FormValues {
+  return {
+    adSoyad: driver.adSoyad,
+    adres: driver.adres,
+    telefon: driver.telefon ?? '',
+    plaka: driver.plaka ?? '',
+    model: driver.model ?? '',
+    ilce: driver.ilce,
+    lat: String(driver.lat),
+    lon: String(driver.lon),
+  }
+}
+
 function toDriverInput(values: FormValues): DriverInput {
   const lat = Number(values.lat)
   const lon = Number(values.lon)
@@ -59,8 +73,9 @@ function toDriverInput(values: FormValues): DriverInput {
   return {
     adSoyad: values.adSoyad.trim(),
     adres: values.adres.trim(),
+    // Plakada Türkçe harf yok; 'tr' kuralı "i"yi "İ" yapardı.
+    plaka: values.plaka.trim().replace(/\s+/g, ' ').toUpperCase(),
     ...(values.telefon ? { telefon: values.telefon.trim() } : {}),
-    ...(values.plaka ? { plaka: values.plaka.trim().toLocaleUpperCase('tr') } : {}),
     ...(values.model ? { model: values.model.trim() } : {}),
     ...(values.ilce ? { ilce: values.ilce } : {}),
     ...(koordinatVar ? { lat, lon } : {}),
@@ -70,14 +85,21 @@ function toDriverInput(values: FormValues): DriverInput {
 interface DriverFormModalProps {
   open: boolean
   onOpenChange: (open: boolean) => void
+  /** Doluysa düzenleme, boşsa ekleme modu. */
+  driver?: Driver | null
 }
 
 /**
- * Şoför ekleme. Kaydedildiğinde <b>yeni bir servis de</b> oluşur — sistemde
- * rotanın başlangıç noktası şoförün ev adresi olduğu için şoförsüz servis ya da
- * servissiz şoför anlamsız.
+ * Şoför ekleme ve düzenleme. Eklemede <b>yeni bir servis de</b> oluşur —
+ * sistemde rotanın başlangıç noktası şoförün ev adresi olduğu için şoförsüz
+ * servis ya da servissiz şoför anlamsız.
  */
-export function DriverFormModal({ open, onOpenChange }: DriverFormModalProps) {
+export function DriverFormModal({
+  open,
+  onOpenChange,
+  driver,
+}: DriverFormModalProps) {
+  const duzenleme = Boolean(driver)
   const dispatch = useAppDispatch()
   const kaydediliyor = useAppSelector((state) => state.drivers.saving)
 
@@ -91,24 +113,31 @@ export function DriverFormModal({ open, onOpenChange }: DriverFormModalProps) {
 
   useEffect(() => {
     if (!open) return
-    reset(BOS_FORM)
-  }, [open, reset])
+    reset(driver ? toFormValues(driver) : BOS_FORM)
+  }, [open, driver, reset])
 
   const onSubmit = handleSubmit(async (values) => {
     const input = toDriverInput(values)
     try {
-      const sofor = await dispatch(createDriver(input)).unwrap()
+      const sofor = driver
+        ? await dispatch(updateDriver({ id: driver.id, input })).unwrap()
+        : await dispatch(createDriver(input)).unwrap()
 
-      // Dengeleme birden fazla servisi etkileyebiliyor; iki listeyi de tazele.
+      // Ekleme de adres değişikliği de birden fazla servisi etkileyebiliyor;
+      // iki listeyi de tazele.
       void dispatch(fetchServices())
       void dispatch(fetchEmployees())
 
-      toast.success(`${sofor.adSoyad} eklendi`, {
-        description: `Servis-${sofor.servisId} oluşturuldu ve personel dağılımı dengelendi.`,
+      toast.success(`${sofor.adSoyad} ${driver ? 'güncellendi' : 'eklendi'}`, {
+        description: driver
+          ? 'Ev adresi değiştiyse personel dağılımı yeniden dengelendi.'
+          : `${servisAdi(sofor.plaka)} servisi oluşturuldu ve personel dağılımı dengelendi.`,
       })
       onOpenChange(false)
     } catch (mesaj) {
-      toast.error('Şoför eklenemedi', { description: String(mesaj) })
+      toast.error(driver ? 'Şoför güncellenemedi' : 'Şoför eklenemedi', {
+        description: String(mesaj),
+      })
     }
   })
 
@@ -116,10 +145,11 @@ export function DriverFormModal({ open, onOpenChange }: DriverFormModalProps) {
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="max-w-xl">
         <DialogHeader>
-          <DialogTitle>Şoför ekle</DialogTitle>
+          <DialogTitle>{duzenleme ? 'Şoförü düzenle' : 'Şoför ekle'}</DialogTitle>
           <DialogDescription>
-            Şoförle birlikte yeni bir servis oluşturulur. Servisin rotası bu
-            adresten başlar.
+            {duzenleme
+              ? 'Ev adresi değişirse servisin rotası yeni adresten başlar ve personel dağılımı yeniden dengelenir.'
+              : 'Şoförle birlikte yeni bir servis oluşturulur. Servisin rotası bu adresten başlar.'}
           </DialogDescription>
         </DialogHeader>
 
@@ -187,8 +217,10 @@ export function DriverFormModal({ open, onOpenChange }: DriverFormModalProps) {
                   id="plaka"
                   placeholder="34 ABC 123"
                   className="uppercase"
+                  aria-invalid={Boolean(formState.errors.plaka)}
                   {...register('plaka')}
                 />
+                <FieldError message={formState.errors.plaka?.message} />
               </div>
               <div className="space-y-1.5">
                 <Label htmlFor="model">Model</Label>
@@ -199,16 +231,21 @@ export function DriverFormModal({ open, onOpenChange }: DriverFormModalProps) {
                 />
               </div>
             </div>
+            <p className="text-xs text-muted-foreground">
+              Servis her yerde bu plakayla anılır; iki serviste aynı plaka olamaz.
+            </p>
           </fieldset>
 
-          <p className="flex gap-2 rounded-md bg-muted/50 px-3 py-2 text-xs text-muted-foreground">
-            <InfoIcon className="mt-0.5 size-3.5 shrink-0" />
-            <span>
-              Yeni servis boş doğar. Kaydedildiğinde en uygun personel asgari
-              doluluğa kadar bu servise taşınır; geri kalan herkesin servisi
-              olduğu gibi kalır.
-            </span>
-          </p>
+          {duzenleme ? null : (
+            <p className="flex gap-2 rounded-md bg-muted/50 px-3 py-2 text-xs text-muted-foreground">
+              <InfoIcon className="mt-0.5 size-3.5 shrink-0" />
+              <span>
+                Yeni servis boş doğar. Kaydedildiğinde en uygun personel asgari
+                doluluğa kadar bu servise taşınır; geri kalan herkesin servisi
+                olduğu gibi kalır.
+              </span>
+            </p>
+          )}
 
           <DialogFooter>
             <Button
@@ -221,7 +258,7 @@ export function DriverFormModal({ open, onOpenChange }: DriverFormModalProps) {
             </Button>
             <Button type="submit" disabled={kaydediliyor}>
               {kaydediliyor ? <Loader2Icon className="animate-spin" /> : null}
-              Kaydet
+              {duzenleme ? 'Güncelle' : 'Kaydet'}
             </Button>
           </DialogFooter>
         </form>

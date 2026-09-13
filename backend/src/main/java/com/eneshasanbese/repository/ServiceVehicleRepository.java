@@ -11,4 +11,9 @@ import com.eneshasanbese.entity.ServiceVehicle;
 public interface ServiceVehicleRepository extends JpaRepository<ServiceVehicle, Long> {
 
     List<ServiceVehicle> findAllByOrderByIdAsc();
+
+    /** Plaka servisin adı olduğu için iki araçta aynı plaka olamaz. */
+    boolean existsByPlateNumberIgnoreCase(String plateNumber);
+
+    boolean existsByPlateNumberIgnoreCaseAndIdNot(String plateNumber, Long id);
 }
