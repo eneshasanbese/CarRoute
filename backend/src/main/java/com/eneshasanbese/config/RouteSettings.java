@@ -16,17 +16,20 @@ import lombok.Getter;
 public class RouteSettings {
 
     /**
-     * Ofis: Meclis Mah. Sancaktepe/İstanbul — herkesin varış noktası.
+     * Ofis: Boutique Daça Alışveriş Merkezi, Soner Sokağı, Meclis Mah.
+     * Sancaktepe/İstanbul — herkesin varış noktası.
      *
      * <p>
-     * Seed dosyasındaki 40.9958 / 29.2069 çifti adresle uyuşmuyor: o nokta
-     * Eyüp Sultan Mahallesi'ne, yani adreste yazan Meclis Mahallesi'nin 1.6 km
-     * güneyine düşüyor. Buradaki değer Meclis Mahallesi merkezidir.
+     * Değer binanın OpenStreetMap'teki merkezi (Nominatim). OSRM bu noktayı 35 m
+     * ötedeki Soner Sokağı'na bağlıyor; servisler ana caddeye değil binanın
+     * yanındaki sokağa varıyor. Seed dosyasındaki 40.9958 / 29.2069 çifti
+     * adresle uyuşmuyordu (Eyüp Sultan Mahallesi'ne düşüyordu), ardından
+     * kullanılan 41.010412 / 29.204878 ise yalnızca mahalle merkeziydi.
      */
-    @Value("${carroute.office.lat:41.010412}")
+    @Value("${carroute.office.lat:41.008493}")
     private double officeLat;
 
-    @Value("${carroute.office.lon:29.204878}")
+    @Value("${carroute.office.lon:29.197506}")
     private double officeLon;
 
     @Value("${carroute.office.label:Ofis (Sancaktepe)}")

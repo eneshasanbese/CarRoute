@@ -57,7 +57,7 @@ Hatalar düz JSON: `{ status, error, message }` — 400 (geçersiz gövde/parame
 
 **Başlangıç ve bitiş.** Sabit garaj yok. Her servis kendi şoförünün ev adresinden
 kalkar, atanmış işçileri toplar ve ofiste biter
-(Sancaktepe, `40.9958 / 29.2069`). Kalkış saati ofiste 08:00'de olunacak şekilde
+(Boutique Daça AVM, Sancaktepe, `41.008493 / 29.197506`). Kalkış saati ofiste 08:00'de olunacak şekilde
 geriye sayılır.
 
 **Sıralama gerçek yol verisiyle yapılır.** Durak sırasına karar veren arama,
@@ -314,8 +314,8 @@ trafik tablosu yeniden yüklenince önbellek boşaltılır.
 Hepsi `application.properties` üzerinden değiştirilebilir (`RouteSettings`):
 
 ```properties
-carroute.office.lat=41.010412
-carroute.office.lon=29.204878
+carroute.office.lat=41.008493
+carroute.office.lon=29.197506
 carroute.office.arrival=08:00
 carroute.osrm.enabled=true
 carroute.osrm.table-enabled=true
@@ -456,9 +456,12 @@ SELECT setval(pg_get_serial_sequence('service_vehicle','id'), (SELECT MAX(id) FR
 
 **Ofis koordinatı düzeltildi.** Seed dosyasındaki `40.9958 / 29.2069` çifti
 adresle uyuşmuyor: o nokta Eyüp Sultan Mahallesi'ne, yani adreste yazan Meclis
-Mahallesi'nin 1.6 km güneyine düşüyor (Nominatim ile doğrulandı). Varsayılan
-artık Meclis Mahallesi merkezi: `41.010412 / 29.204878`. Binanın tam noktası
-biliniyorsa `carroute.office.lat/lon` ile verilmeli.
+Mahallesi'nin 1.6 km güneyine düşüyor (Nominatim ile doğrulandı). Ara çözüm
+olarak kullanılan `41.010412 / 29.204878` yalnızca mahalle merkeziydi. Varsayılan
+artık ofisin bulunduğu binanın, Boutique Daça Alışveriş Merkezi'nin
+OpenStreetMap'teki merkezi: `41.008493 / 29.197506`. OSRM bu noktayı 35 m
+ötedeki Soner Sokağı'na bağlıyor. Başka bir ofis için `carroute.office.lat/lon`
+ile verilmeli.
 
 **İlçe kolonu yok.** Arayüzdeki `ilce` alanı adres metninden çıkarılıyor
 (`AddressUtils.extractDistrict`), çünkü `worker` tablosunda ayrı bir ilçe kolonu
